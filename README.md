@@ -1,4 +1,4 @@
-# DistAlgo
+# DistAlgo-licenta
 
   DistAlgo is a very high-level language for programming distributed
   algorithms. This project implements a DistAlgo compiler with Python as the
