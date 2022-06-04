@@ -4,7 +4,6 @@ from da.sim import NodeProcess, DistProcess
 TIMEOUT = 1
 G = InputGraph.get_graph()
 Procs = []
-f = open("graph-1.txt")
 
 class P(DistProcess):
     def setup(self, ps, edges):
@@ -39,10 +38,10 @@ class P(DistProcess):
         # output("search(%r, %r)..." % (path, source))
 
         collected_replies = []
-        if state == NORMAL:
+        if self.state == self.NORMAL:
             collected_replies.append(path)
 
-        neighbors = set(edges.keys()) - set(path)
+        neighbors = set(self.edges.keys()) - set(path)
 
         search_reply_count = 0
         for neighbor in neighbors:
