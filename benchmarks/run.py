@@ -91,36 +91,36 @@ targets = [
         repeat=10),
 
     DAProfile(
-        target=('lamutex/orig.da', None),
+        target=('lamutex/orig.da.py', None),
         args=(range(5, 20+1, 2), '5'),
         repeat=10),
     DAProfile(
-        target=('lamutex/orig.da', "lamutex_orig_inc_inc"),
+        target=('lamutex/orig.da.py', "lamutex_orig_inc_inc"),
         args=(range(5, 20+1, 2), '5'),
         repeat=10),
     DAProfile(
-        target=('lamutex/orig.da', None),
+        target=('lamutex/orig.da.py', None),
         args=(range(25, 150+1, 25), '5'),
         repeat=10),
     DAProfile(
-        target=('lamutex/orig.da', "lamutex_orig_inc_inc"),
+        target=('lamutex/orig.da.py', "lamutex_orig_inc_inc"),
         args=(range(25, 150+1, 25), '5'),
         repeat=10),
     DAProfile(
-        target=('lamutex/orig.da', "orig_inc_invts"),
+        target=('lamutex/orig.da.py', "orig_inc_invts"),
         args=(range(25, 150+1, 25), '5'),
         repeat=10),
 
     DAProfile(
-        target=('lamutex/orig.da', None),
+        target=('lamutex/orig.da.py', None),
         args=('10', range(100, 1000+1, 100)),
         repeat=5),
     DAProfile(
-        target=('lamutex/orig.da', "lamutex_orig_inc_inc"),
+        target=('lamutex/orig.da.py', "lamutex_orig_inc_inc"),
         args=('10', range(100, 1000+1, 100)),
         repeat=5),
     DAProfile(
-        target=('lamutex/orig.da', "orig_inc_invts"),
+        target=('lamutex/orig.da.py', "orig_inc_invts"),
         args=('10', range(100, 1000+1, 100)),
         repeat=5),
 
@@ -163,11 +163,11 @@ targets = [
         repeat=10),
     # ==================================================
     DALoopProfile(
-        target='lamutex/orig.da',
+        target='lamutex/orig.da.py',
         args=(range(25, 150+1, 25), '5'),
         repeat=10),
     DALoopProfile(
-        target='lamutex/orig.da',
+        target='lamutex/orig.da.py',
         args=('10', range(100, 1000+1, 100)),
         repeat=10),
     # --------------------------------------------------
@@ -239,19 +239,19 @@ targets = [
         repeat=10),
     # ==================================================
     DAProfile(
-        target=('lapaxos/orig.da', None),
+        target=('lapaxos/orig.da.py', None),
         args=('5', range(25, 150+1, 25)),
         repeat=10),
     DAProfile(
-        target=('lapaxos/orig.da', "lapaxos_inc_inc"),
+        target=('lapaxos/orig.da.py', "lapaxos_inc_inc"),
         args=('5', range(25, 150+1, 25)),
         repeat=10),
     DAProfile(
-        target=('lapaxos/orig.da', "lapaxos_inc_dem"),
+        target=('lapaxos/orig.da.py', "lapaxos_inc_dem"),
         args=('5', range(25, 150+1, 25)),
         repeat=10),
     DALoopProfile(
-        target='lapaxos/orig.da',
+        target='lapaxos/orig.da.py',
         args=('5', range(25, 150+1, 25)),
         repeat=10)
     # DAProfile(
@@ -280,21 +280,21 @@ targets = [
     #     repeat=10),
 ]
 compile_targets = [
-    "../examples/vrpaxos/orig.da",
-    "../examples/crleader/orig.da",
-    "../examples/dscrash/orig.da",
+    "../examples/vrpaxos/orig.da.py",
+    "../examples/crleader/orig.da.py",
+    "../examples/dscrash/orig.da.py",
     "../examples/dscrash/spec.da",
     "../examples/ratoken/spec.da",
-    "../examples/raft/orig.da",
-    "../examples/lamutex/orig.da",
+    "../examples/raft/orig.da.py",
+    "../examples/lamutex/orig.da.py",
     "../examples/lamutex/spec.da",
     "../examples/pingpong/ping.da",
-    "../examples/hsleader/orig.da",
-    "../examples/ramutex/orig.da",
-    "../examples/sktoken/orig.da",
+    "../examples/hsleader/orig.da.py",
+    "../examples/ramutex/orig.da.py",
+    "../examples/sktoken/orig.da.py",
     "../examples/clpaxos/spec.da",
-    "../examples/lapaxos/orig.da",
-    "../examples/2pcommit/orig.da",
+    "../examples/lapaxos/orig.da.py",
+    "../examples/2pcommit/orig.da.py",
 ]
 for ct in compile_targets:
     targets.append(CompileProfile(target=ct, args=None, repeat=10))

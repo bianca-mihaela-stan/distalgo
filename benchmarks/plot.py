@@ -174,18 +174,18 @@ class GraphInfo(namedtuple("_GraphInfo",
 
 DataDir = "results/"
 CompileTargets = [
-    ("../examples/2pcommit/orig.da" , '2P Commit'),
+    ("../examples/2pcommit/orig.da.py" , '2P Commit'),
     ("../examples/clpaxos/spec.da"  , 'Byz Paxos'),
-    ("../examples/crleader/orig.da" , 'CR Leader'),
-    ("../examples/dscrash/orig.da"  , 'DS Crash'),
-    ("../examples/hsleader/orig.da" , 'HS Leader'),
-    ("../examples/lamutex/orig.da"  , 'LA Mutex'),
-    ("../examples/lapaxos/orig.da"  , 'LA Paxos'),
-    ("../examples/raft/orig.da"     , 'Raft'),
-    ("../examples/ramutex/orig.da"  , 'RA Mutex'),
+    ("../examples/crleader/orig.da.py" , 'CR Leader'),
+    ("../examples/dscrash/orig.da.py"  , 'DS Crash'),
+    ("../examples/hsleader/orig.da.py" , 'HS Leader'),
+    ("../examples/lamutex/orig.da.py"  , 'LA Mutex'),
+    ("../examples/lapaxos/orig.da.py"  , 'LA Paxos'),
+    ("../examples/raft/orig.da.py"     , 'Raft'),
+    ("../examples/ramutex/orig.da.py"  , 'RA Mutex'),
     ("../examples/ratoken/spec.da"  , 'RA Token'),
-    ("../examples/sktoken/orig.da"  , 'SK Token'),
-    ("../examples/vrpaxos/orig.da"  , 'VR Paxos'),
+    ("../examples/sktoken/orig.da.py"  , 'SK Token'),
+    ("../examples/vrpaxos/orig.da.py"  , 'VR Paxos'),
 ]
 Arg_lamutex_vary_rounds = ('10', range(100, 1000+1, 100))
 Arg_lamutex_vary_rounds_low = ('5', range(10, 100+1, 10))
@@ -204,30 +204,30 @@ DataSet_compile = CompilerDataSet(
 DataSet_compile_inc = CompilerIncDataSet(
     target=[fn for fn, _ in CompileTargets])
 DataSet_lamutex_orig_vary_rounds = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module=None,
     args=Arg_lamutex_vary_rounds)
 DataSet_lamutex_orig_inc_vary_rounds = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module="lamutex_orig_inc_inc",
     args=Arg_lamutex_vary_rounds)
 DataSet_lamutex_orig_invts_vary_rounds = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module="orig_inc_invts",
     args=Arg_lamutex_vary_rounds)
 DataSet_lamutex_orig_loop_vary_rounds = DALoopDataSet(
     target="lamutex/orig2.da",
     args=Arg_lamutex_vary_rounds)
 DataSet_lamutex_orig_vary_procs = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module=None,
     args=Arg_lamutex_vary_procs_oopsla)
 DataSet_lamutex_orig_inc_vary_procs = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module="lamutex_orig_inc_inc",
     args=Arg_lamutex_vary_procs_oopsla)
 DataSet_lamutex_orig_invts_vary_procs = DADataSet(
-    program="lamutex/orig.da",
+    program="lamutex/orig.da.py",
     inc_module="orig_inc_invts",
     args=Arg_lamutex_vary_procs_oopsla)
 DataSet_lamutex_orig_loop_vary_procs = DALoopDataSet(
@@ -332,11 +332,11 @@ DataSet_tpcommit_loop_vary_procs = DALoopDataSet(
     target="2pcommit/spec2.da",
     args=Arg_tpcommit_vary_procs)
 DataSet_lapaxos_spec_vary_procs = DADataSet(
-    program="lapaxos/orig.da",
+    program="lapaxos/orig.da.py",
     inc_module=None,
     args=Arg_lapaxos_vary_procs)
 DataSet_lapaxos_spec_inc_vary_procs = DADataSet(
-    program="lapaxos/orig.da",
+    program="lapaxos/orig.da.py",
     inc_module="lapaxos_inc_inc",
     args=Arg_lapaxos_vary_procs)
 DataSet_lapaxos_loop_vary_procs = DALoopDataSet(
