@@ -1,183 +1,63 @@
 import sys
-import InputGraph
-from da.sim import NodeProcess, DistProcess
-TIMEOUT = 1
-G = InputGraph.get_graph()
-Procs = []
 
-class P(DistProcess):
-    def setup(self, ps, edges):
-        if str(self) == '0':
-            other_procs = ps
-            vertices = set()
-        else:
-            control_proc = ps
-            edges = edges
+class P(process):
+    def setup(left:P, neighbours:tuple):
+        self.leaderid = None
+        self.neighbours = neighbours
+        output(f"Process with id {P} is being set up.")
 
-        # Possible states a node could be in:
-        NORMAL = 'NORMAL'  # Initial state of all nodes
-        VERTEX = 'VERTEX'  # Indicates that the node is part of the MIS
-        OUT = 'OUT'  # Nieghbor nodes marked as not being a part of the MIS
+    def initiate():
+        send(('Election', self), to=left)
 
-        # Used for marking
-        out_confirmations = set()
-        state = NORMAL
+    def receive(msg=('Election', p)):
+        if p > self:
+            send(('Election', p), to=left)
+        if p < self:
+            if not sent(('Election', self)):
+                send(('Election', self), to=left)
+        if p == self:
+            send(('Leader', self), to=left)
 
-        # Used for search:
-        search_requested = set()
-        search_reply_count = 0
-        collected_replies = set()
+    def receive(msg=('Leader', leader)):
+        leaderid = leader
+        if leader != self:
+            send(('Leader', leader), to=left)
 
-        # Used for control purposes:
-        call = 'none'
-        call_args = None
+    def run():
+        initiate()
+        await (some(received(('Leader', _))))
+        output("Leader is", 1)
 
-        done = False
-
-    def search(self, path, source):
-        # output("search(%r, %r)..." % (path, source))
-
-        collected_replies = []
-        if self.state == self.NORMAL:
-            collected_replies.append(path)
-
-        neighbors = set(self.edges.keys()) - set(path)
-
-        search_reply_count = 0
-        for neighbor in neighbors:
-            send(Search(path + [neighbor]), to=neighbor)
-
-        await(search_reply_count == len(neighbors))
-
-        # output("%r ---- %r" % (self, collected_replies))
-        if source:
-            send(SearchReply(collected_replies), to=source)
-        else:
-            return collected_replies
-
-    def OnSearchReply(self, paths):
-        search_reply_count += 1
-        if paths:
-            collected_replies += paths
-
-    def OnSearch(self, path):
-        root = path[0]
-
-        if root in search_requested:
-            send(SearchReply(None), to=_source)
-
-        else:
-            search_requested.update({root})
-
-            call_args = (path, _source)
-            call = 'search'
-
-    def setState(self, new_state):
-        if new_state != state:
-            state = new_state
-            output("%r marked as %s" % (self, state))
-
-    def OnMark(self, path):
-        if not path:
-            call = 'mark'
-        else:
-            next, path = path[0], path[1:]
-            send(Mark(path), to = next)
-
-    def mark(self):
-        '''Node marks itself as a VERTEX and signals
-                   neighbors to mark themselves as OUT '''
-
-        setState(VERTEX)
-        send(Marked(), to=control_proc)
-
-        neighbors = set(edges.keys())
-        out_confirmations = set()
-
-        for neighbor in neighbors:
-            send(Out(), to=neighbor)
-
-        await(out_confirmations == neighbors)
-        # output("Out Confirmed: %r" % out_confirmations)
-
-        search_source = None
-        search_result = search([self], None)
-        # output(search_result)
-
-        if search_result:
-            random_path = random.choice(search_result)
-            random_path = random_path[1:]
-            send(Mark(random_path[1:]), to=random_path[0])
-        else:
-            # output("Sending control proc message FINISHED...")
-            send(Finished(), to=control_proc)
-
-    def OnOut(self):
-        setState(OUT)
-        send(OutConfirmation(), to=_source)
-
-    def OnOutConfirmation(self):
-        out_confirmations.update({_source})
-
-    def node(self):
-        while call and not done:
-            # Using a copy of call
-            _call = str(call)
-            call = None
-
-            if _call == 'none':
-                pass
-            elif _call == 'mark':
-                mark()
-            elif _call == 'search':
-                search(*call_args)
-
-            await(done or call)
-
-        #output("Node %r is going DOWN..." % self)
-
-    def OnDone(self):
-        done = True
-
-    def OnFinished(self):
-        pass
-
-    def OnMarked(self):
-        vertices.update(str(_source))
-
-    def controlProc(self):
-        random_node = ps.pop()
-        ps.add(random_node)
-
-        send(Mark([]), to=random_node)
-        await(received(Finished()))
-
-        send(Done(), to=other_procs)
-        output("Vertices in the MIS are: %s" % ", ".join(str(v) for v in vertices))
-
-    def main(self):
-        if str(self) == '0':
-            controlProc()
-        else:
-            node()
 
 def main():
+    config(channel="fifo")
+    #graph_file = "F:\GitHub\distalgo\da\examples\MIS\graph-1.txt"
+    #f = open(graph_file)
+    n = 3
+    m = 2
+    #n = int(f.readline())
+    #m = int(f.readline())
+    #n = int(input())
+    #m = int(input())
 
-    edges = dist()
-    x = f.readline().strip().split(" ")
-    while x:
-        edges[int(x[0])]
+    dict = {x: [] for x in range(n)}
 
-    Procs.append(new(P))
+    for line in range(m):
+        #x = int(input())
+        #y = int(input())
+        #[x,y] = [int(a) for a in f.readline().strip().split()]
+        x = 1
+        y = 2
+        dict[x].append(y)
+        dict[y].append(x)
 
-    procs_names = set(G.nodes())
-    procs_names.update({'0'})
+    ps = []
+    for i in range(n):
+        p = new(P)
+        ps.append(p)
 
+    for i,p in enumerate(ps):
+        setup({p}, (ps[(i+1 if i < (len(ps)-1) else 0)], tuple(dict[i]), ))
 
-    print(procs_names)
-    # for p in Procs:
-    #     if str(p) == '0':
-    #         print(0)
-    #     else:
-    #         p_edges = { Procs[node] : data['weight']}
+    start(ps)
 
