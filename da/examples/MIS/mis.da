@@ -1,6 +1,7 @@
 import da
 import sys
 import random
+import os
 
 class Coordinator(process):
     def setup(nr_nodes: int, neighbors_process_ids:tuple):
@@ -9,30 +10,41 @@ class Coordinator(process):
         self.neighbors_indexes = list(range(0, self.nr_nodes))
         self.mis_nodes = []
         self.not_mis_nodes = []
+        self.everyone = [False for x in self.neighbors_indexes]
         
     def run():
         # phase 1: coordinator prompts all nodes to randomly decide if they are in the mis or not
+        output("phase 1")
         send(('random'), to = self.neighbors_process_ids)
         await(each(p in neighbors_process_ids, has= some(received(('random', _), from_= _p))))
-        await()
+        await(all(everyone))
+        everyone = []
+            
 
-    def receive(msg = ('in mis', p)):
-        self.mis_nodes.append(p)
-        remove_index = self.neighbors_process_ids.index(p)
+    def receive(msg = ('in mis', index)):
+        output(f"{index} is in the MIS")
+        self.everyone[index] = True
+        self.mis_nodes.append(index)
+        remove_index = self.neighbors_indexes.index(index)
         self.neighbors_indexes.pop(remove_index)
         self.neighbors_process_ids.pop(remove_index)
 
-    def receive(msg = ('not in mis', p)):
-        self.not_mis_nodes.append(p)
-        remove_index = self.neighbors_process_ids.index(p)
+    def receive(msg = ('not in mis', index)):
+        output(f"{index} is NOT in the MIS")
+        self.everyone[index] = True
+        self.not_mis_nodes.append(index)
+        remove_index = self.neighbors_indexes.index(index)
         self.neighbors_indexes.pop(remove_index)
         self.neighbors_process_ids.pop(remove_index)
+        
+    def receive(msg = ('not decided', index)):
+        self.everyone[index] = True
 
 class P(process):
     def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, master_proc: tuple):
         self.index = index
-        self.neighbors_indexes = neighbors_indexes
-        self.neighbors_process_ids = neighbors_process_ids
+        self.neighbors_indexes = list(neighbors_indexes)
+        self.neighbors_process_ids = list(neighbors_process_ids)
         self.master_proc = master_proc
         self.MIS = 'NOT DECIDED'
         self.neighbors_neighbors_numbers = []
@@ -44,15 +56,20 @@ class P(process):
         
     def receive(msg=('random')):
         # phase 2: each node decides
+        output("phase 2")
         self.MIS = random.choices(['IN MIS', 'NOT IN MIS'], weights=[(1 / len(self.neighbors_indexes)), (1 - (1 / len(self.neighbors_indexes)))])
         
         # phase 3: each node send its nr of nodes to all of his neighbors
+        output("phase 3")
         send(('neighbors', len(self.neighbors_indexes), self.MIS), to=self.neighbors_process_ids)
 
         await(len(self.neighbors_neighbors_numbers) == len(self.neighbors_process_ids))
+        self.neighbors_neighbors_numbers = []
 
         # phase 4: each node checks if he has the most neighbors
+        output("phase 4")
         self.MIS = 'IN MIS' if all([(len(self.neighbors_indexes) > y) for y in self.MIS_neighbors_numbers]) else 'NOT DECIDED'
+        self.MIS_neighbors_numbers = []
 
         # if he has the most neighbors
         if(self.MIS == 'IN MIS'):
@@ -62,22 +79,32 @@ class P(process):
             await(each(p in neighbors_process_ids, has= some(received(('you are not in the mis', _), from_= _p))))
 
             # he notifies the coordinator that he is in the mis
-            send(('in mis', self), to=self.master_proc)
+            send(('in mis', self.index), to=self.master_proc)
         else:
             send(('undecided', self.index), to = self.neighbors_process_ids)
             
+            await(all(self.undecided_neighbors))
+            
+            send(('not decided', self.index), to = self.master_proc)
+            
+    def receive(msg = ('neighbors', nr, mis)):
+        self.neighbors_neighbors_numbers.append(nr)
+        if mis == 'IN MIS':
+            self.MIS_neighbors_numbers.append(nr)
+            
 
     def receive(msg = ('you are not in the mis')):
+        output("you are not in the mis")
         self.MIS = 'NOT IN MIS'
 
         send(('remove edge', self, self.index, self.neighbors_indexes), to=self.neighbors_process_ids)
 
         await(each(p in neighbors_process_ids, has= some(received(('remove edge', _), from_= _p))))
 
-        send(('not in mis', self), to=self.master_proc)
+        send(('not in mis', self.index), to=self.master_proc)
 
     def receive(msg = ('remove edge', p, index, neighbors_indexes)):
-        if p not in self.neighbors_process_ids:
+        if index not in self.neighbors_process_ids:
             output(self.index, self.neighbors_indexes, index, neighbors_indexes)
         
         remove_index = self.neighbors_process_ids.index(p)
@@ -89,8 +116,7 @@ class P(process):
         
 
 def main():
-    graph_file = '/home/bianca/distalgo/da/examples/MIS/graph1.txt'
-    f = open(graph_file)
+    f = open(r'/home/bianca/distalgo/da/examples/MIS/graph3.txt')
     dict = {}
     line = f.readline()
     n = 0
@@ -104,6 +130,8 @@ def main():
     for i in range(0, n):
         p = new(P)
         ps.append(p)
+    
+    output(dict)
 
     coordinator = new(Coordinator)
     setup({coordinator}, (n, tuple(ps)))
@@ -113,5 +141,5 @@ def main():
             ps_ids.append(ps[(x - True)])
         setup({p}, (i, tuple(dict[i]), tuple(ps_ids), coordinator))
 
-    start(ps)
-    start(coordinator)
+    # start(ps)
+    # start(coordinator)
