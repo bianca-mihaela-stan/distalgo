@@ -1,0 +1,117 @@
+import da
+import sys
+import random
+
+class Coordinator(process):
+    def setup(nr_nodes: int, neighbors_process_ids:tuple):
+        self.nr_nodes = nr_nodes
+        self.neighbors_process_ids = list(neighbors_process_ids)
+        self.neighbors_indexes = list(range(0, self.nr_nodes))
+        self.mis_nodes = []
+        self.not_mis_nodes = []
+        
+    def run():
+        # phase 1: coordinator prompts all nodes to randomly decide if they are in the mis or not
+        send(('random'), to = self.neighbors_process_ids)
+        await(each(p in neighbors_process_ids, has= some(received(('random', _), from_= _p))))
+        await()
+
+    def receive(msg = ('in mis', p)):
+        self.mis_nodes.append(p)
+        remove_index = self.neighbors_process_ids.index(p)
+        self.neighbors_indexes.pop(remove_index)
+        self.neighbors_process_ids.pop(remove_index)
+
+    def receive(msg = ('not in mis', p)):
+        self.not_mis_nodes.append(p)
+        remove_index = self.neighbors_process_ids.index(p)
+        self.neighbors_indexes.pop(remove_index)
+        self.neighbors_process_ids.pop(remove_index)
+
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, master_proc: tuple):
+        self.index = index
+        self.neighbors_indexes = neighbors_indexes
+        self.neighbors_process_ids = neighbors_process_ids
+        self.master_proc = master_proc
+        self.MIS = 'NOT DECIDED'
+        self.neighbors_neighbors_numbers = []
+        self.MIS_neighbors_numbers = []
+        self.undecided_neighbors = [False for x in neighbors_indexes]
+
+    def run():
+        await()
+        
+    def receive(msg=('random')):
+        # phase 2: each node decides
+        self.MIS = random.choices(['IN MIS', 'NOT IN MIS'], weights=[(1 / len(self.neighbors_indexes)), (1 - (1 / len(self.neighbors_indexes)))])
+        
+        # phase 3: each node send its nr of nodes to all of his neighbors
+        send(('neighbors', len(self.neighbors_indexes), self.MIS), to=self.neighbors_process_ids)
+
+        await(len(self.neighbors_neighbors_numbers) == len(self.neighbors_process_ids))
+
+        # phase 4: each node checks if he has the most neighbors
+        self.MIS = 'IN MIS' if all([(len(self.neighbors_indexes) > y) for y in self.MIS_neighbors_numbers]) else 'NOT DECIDED'
+
+        # if he has the most neighbors
+        if(self.MIS == 'IN MIS'):
+            # he notifies all of his neighbors that they cannot be in the mis
+            send(('you are not in the mis'), to = self.neighbors_process_ids)
+
+            await(each(p in neighbors_process_ids, has= some(received(('you are not in the mis', _), from_= _p))))
+
+            # he notifies the coordinator that he is in the mis
+            send(('in mis', self), to=self.master_proc)
+        else:
+            send(('undecided', self.index), to = self.neighbors_process_ids)
+            
+
+    def receive(msg = ('you are not in the mis')):
+        self.MIS = 'NOT IN MIS'
+
+        send(('remove edge', self, self.index, self.neighbors_indexes), to=self.neighbors_process_ids)
+
+        await(each(p in neighbors_process_ids, has= some(received(('remove edge', _), from_= _p))))
+
+        send(('not in mis', self), to=self.master_proc)
+
+    def receive(msg = ('remove edge', p, index, neighbors_indexes)):
+        if p not in self.neighbors_process_ids:
+            output(self.index, self.neighbors_indexes, index, neighbors_indexes)
+        
+        remove_index = self.neighbors_process_ids.index(p)
+        self.neighbors_indexes.pop(remove_index)
+        self.neighbors_process_ids.pop(remove_index)
+        
+    def receive(msg = ('undecided', index)):
+        self.undecided_neighbors[index] = True
+        
+
+def main():
+    graph_file = '/home/bianca/distalgo/da/examples/MIS/graph1.txt'
+    f = open(graph_file)
+    dict = {}
+    line = f.readline()
+    n = 0
+    while line:
+        list = line.split(' ')
+        x = list[0]
+        dict[n] = [int(x) for x in list[2:(- 1)]]
+        line = f.readline()
+        n += 1
+    ps = []
+    for i in range(0, n):
+        p = new(P)
+        ps.append(p)
+
+    coordinator = new(Coordinator)
+    setup({coordinator}, (n, tuple(ps)))
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i]:
+            ps_ids.append(ps[(x - True)])
+        setup({p}, (i, tuple(dict[i]), tuple(ps_ids), coordinator))
+
+    start(ps)
+    start(coordinator)
