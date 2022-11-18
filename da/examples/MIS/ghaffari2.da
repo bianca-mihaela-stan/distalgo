@@ -1,0 +1,197 @@
+import da
+import sys
+import random
+import os
+f = open(r'/home/bianca/distAlgo/distalgo/da/examples/MIS/graph2.txt')
+f2 = open('/home/bianca/distAlgo/distalgo/da/examples/MIS/found_mis.txt', "w")
+
+mis_list = []
+
+class Coordinator(process):
+    def setup(nr_nodes:int):
+        self.nodes = {}
+        self.nr_nodes = nr_nodes
+        self.mis = []
+        self.ack = 0
+        self.keep_going = True
+        self.round_nr = 0
+        
+    def run():
+        await(len(self.nodes.keys()) == self.nr_nodes - 1)
+        
+        while self.keep_going == True:
+            self.keep_going = False
+            self.ack = 0
+            
+            self.round_nr += 1
+            
+            send(('start round', self.round_nr), to = list(self.nodes.values()))
+
+            await(self.ack == self.nr_nodes - 1)
+            output(f"coordinator: {mis}")
+            
+    
+    def receive(msg = ('done', index, node_mis)):
+        output(f"coordinator: received {node_mis} from {index}")
+        if index in list(self.nodes.keys()):
+            self.ack +=1
+        
+        if node_mis == 'IN MIS':
+            self.mis.append(index)
+            
+        if node_mis == 'IN MIS' or node_mis == 'NOT IN MIS':
+            self.nodes.pop(index)
+            
+        if node_mis == 'NOT DECIDED':
+            self.keep_going = True
+            
+    def receive(msg = ('hi', index, id), label = receive_hi):
+        self.nodes[index] = id
+        
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, coordinator:tuple):
+        self.index = index
+        self.neighbors_indexes = list(neighbors_indexes)
+        self.neighbors_process_ids = list(neighbors_process_ids)
+        self.coordinator = coordinator
+        self.MIS = 'NOT DECIDED'
+        self.desire_level = 0.5
+        self.effective_degree = None
+        self.desire_marks = {}
+        self.round_nr = None
+        self.confirmation1 = {}
+        self.confirmation2 = {}
+        self.confirmation3 = {}
+        
+    def run():
+        send(('hi', self.index, self), to = self.coordinator)
+        await()
+        
+    def receive(msg = ('start round', round_nr)):
+        self.round_nr = round_nr
+        if self.round_nr not in list(self.desire_marks.keys()):
+            self.desire_marks[self.round_nr] = []
+            
+        if self.round_nr not in list(self.confirmation1.keys()):
+            self.confirmation1[self.round_nr] = []
+            
+        if self.round_nr not in list(self.confirmation2.keys()):
+            self.confirmation2[self.round_nr] = []
+            
+        if self.round_nr not in list(self.confirmation3.keys()):
+            self.confirmation3[self.round_nr] = []
+        
+        if self.round_nr - 1 in list(self.desire_marks.keys()):
+            self.effective_degree = sum([x[0] for x in self.desire_marks[self.round_nr - 1]])
+            if self.effective_degree >= 2:
+                self.desire_level = self.desire_level / 2
+            else:
+                self.desire_level = min(2 * self.desire_level, 0.5)
+                
+        
+        # output(f"round_nr {self.round_nr} {self.index} : desire level = {self.desire_level} effective_degree = {self.effective_degree}")
+        
+        random_choice_MIS()
+            
+        send(('done', self.index, self.MIS), to = self.coordinator)
+        
+    def random_choice_MIS(): 
+        self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[self.desire_level, 1 - self.desire_level])[0]
+        
+        send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = self.neighbors_process_ids)
+        # output(f"CONFIRMATION1 {self.confirmation1}")
+        await(len(self.confirmation1[self.round_nr]) == len(self.neighbors_indexes))
+        
+        
+        # output(f"index = {self.index} round = {self.round_nr}: has all confirmation")
+        
+        # output(f"DESIRE MARKS {self.desire_marks} {self.round_nr}")
+        await(len(self.desire_marks[self.round_nr]) == len(self.neighbors_indexes))
+        # output(f"index = {self.index} round = {self.round_nr}: received {self.desire_marks}")
+        
+        if 'IN MIS' in [x[1] for x in self.desire_marks[self.round_nr]] and self.MIS == 'IN MIS':
+            self.MIS = 'NOT DECIDED'
+        
+        send(('i am in the mis', self.index, self.MIS == 'IN MIS', round_nr), to = self.neighbors_process_ids)
+        await(len(self.confirmation2[self.round_nr]) == len(self.neighbors_indexes))
+        
+    
+    def receive(msg = ('desire_level + mark', desire_level, mis, index, round_nr), from_ = source):
+        if round_nr in list(self.desire_marks.keys()):
+            self.desire_marks[round_nr].append([desire_level, mis, index])
+        else:
+            self.desire_marks[round_nr] = [[desire_level, mis, index]]
+        
+        send(('confirmation1', round_nr), to = source)
+        
+    def receive(msg = ('i am in the mis', index, bool, round_nr), from_ = source):
+        if bool == True:
+            if self.MIS == 'IN MIS':
+                output("A GRAVE MISTAKE HAS BEEN MADE")
+            self.MIS = 'NOT IN MIS'
+            output(f"{self.index} is not in the mis at round {round_nr} because {index} is")
+            
+        send(('confirmation2', round_nr), to = source)
+        
+        send(('i am not in the mis', self.index, self.neighbors_indexes, bool, round_nr), to = filter(lambda x : x != source, self.neighbors_process_ids))
+        await(len(self.confirmation3[self.round_nr]) == len(self.neighbors_indexes))
+        
+    def receive(msg = ('i am not in the mis', index, neighbors_indexes, bool, round_nr), from_ = source):
+        if bool == True:
+            if index in self.neighbors_indexes:
+                remove_index = self.neighbors_indexes.index(index)
+                self.neighbors_indexes.pop(remove_index)
+                self.neighbors_process_ids.pop(remove_index)   
+                
+        send(('confirmation3', round_nr), to = source)
+        
+    def receive(msg = ('confirmation1', round_nr), from_ = source):
+        if round_nr not in list(self.confirmation1.keys()):
+            self.confirmation1[round_nr] = [source]
+        else:
+            self.confirmation1[round_nr].append(source)
+            
+    def receive(msg = ('confirmation2', round_nr), from_ = source):
+        if round_nr not in list(self.confirmation2.keys()):
+            self.confirmation2[round_nr] = [source]
+        else:
+            self.confirmation2[round_nr].append(source)
+            
+    def receive(msg = ('confirmation3', round_nr), from_ = source):
+        if round_nr not in list(self.confirmation3.keys()):
+            self.confirmation3[round_nr] = [source]
+        else:
+            self.confirmation3[round_nr].append(source)
+    
+    
+def main():
+    dict = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        list = line.split(' ')
+        x = list[0]
+        output(list)
+        dict[n] = [int(x) for x in list[2:(-1)]]
+        line = f.readline()
+        n += 1
+    ps = []
+    for i in range(1, n):
+        p = new(P, method = 'thread')
+        ps.append(p)
+    
+    output(dict)
+    
+    coordinator = new(Coordinator)
+    setup({coordinator}, (n,))
+    start(coordinator)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), coordinator))
+        
+    start(ps)

@@ -2,7 +2,7 @@ import da
 import sys
 import random
 import os
-f = open(r'/home/bianca/distAlgo/distalgo/da/examples/MIS/graph4.txt')
+f = open(r'/home/bianca/distAlgo/distalgo/da/examples/MIS/graph2.txt')
 f2 = open('/home/bianca/distAlgo/distalgo/da/examples/MIS/found_mis.txt', "w")
 
 mis_list = []
@@ -14,14 +14,17 @@ class Coordinator(process):
         self.mis = []
         self.ack = 0
         self.keep_going = True
+        self.round_nr = 0
         
     def run():
         await(len(self.nodes.keys()) == self.nr_nodes - 1)
         
         while self.keep_going == True:
-            self.keep_going == False
+            self.keep_going = False
             self.ack = 0
-            send(('start round'), to = list(self.nodes.values()))
+            self.round_nr += 1
+            # output(f"{self.round_nr}")
+            send(('start round', self.round_nr), to = list(self.nodes.values()))
         
             await(self.ack == self.nr_nodes - 1)
             output(f"coordinator: {mis}")
@@ -29,10 +32,14 @@ class Coordinator(process):
         # output(self.mis)
         
     def receive(msg = ('done', index, node_mis)):
+        output(f"round_nr {self.round_nr} {index} : notifies the coordinator that he is {node_mis}")
         if node_mis == 'IN MIS':
             self.mis.append(index)
+        
+        if node_mis == 'NOT IN MIS' or node_mis == 'IN MIS':
             self.nodes.pop(index)
-        elif node_mis == 'NOT DECIDED':
+            
+        if node_mis == 'NOT DECIDED':
             self.keep_going = True
             
         self.ack += 1
@@ -52,22 +59,26 @@ class P(process):
         self.MIS = 'NOT DECIDED'
         self.desire_level = 0.5
         self.effective_degree = None
-        self.desire_marks = []
+        self.desire_marks = {}
+        self.round_nr = None
         
 
     def run():
         send(('hi', self.index, self), to = self.coordinator)
         await()
         
-    def receive(msg = ('start round')):
-        output(f"{self.index} : start round")
-        # if there was a previous round, calculate the desire_level based on the effective_degree
-        if self.desire_marks != []:
-            self.effective_degree = sum([x[0] for x in self.desire_marks])
+    def receive(msg = ('start round', round_nr)):
+        self.round_nr = round_nr
+        output(f"round_nr {self.round_nr} {self.index} : start round")
+        # if there was a previous round_nr, calculate the desire_level based on the effective_degree
+        if self.round_nr - 1 in self.desire_marks.keys():
+            self.effective_degree = sum([x[0] for x in self.desire_marks[self.round_nr - 1]])
             if self.effective_degree >= 2:
                 self.desire_level = self.desire_level / 2
             else:
                 self.desire_level = min(2 * self.desire_level, 0.5)
+                
+        output(f"round_nr {self.round_nr} {self.index} : desire level = {self.desire_level} effective_degree = {self.effective_degree}")
             
         random_choice_MIS()
             
@@ -75,44 +86,50 @@ class P(process):
         
         
         # output(f"{self.index} : desire marks reset from {self.desire_marks}")
-        self.desire_marks = []
         
     def random_choice_MIS(): 
         # choses to be in the mis or not based on the desire_level 
         self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[self.desire_level, 1 - self.desire_level])[0]
+        output(f"round_nr {self.round_nr} {self.index} : initially chose {self.MIS}")
         
         # sends the desire_level and the mark to the neighbors
         send(('desire_level + mark', self.desire_level, self.MIS, self.index), to = self.neighbors_process_ids)
         await(each(p in self.neighbors_process_ids, has= some(received(('confirmation'), from_= p))))
-        # output(f"{self.index} has all confirmation")
+        output(f"round_nr {self.round_nr} {self.index} : has all confirmation")
         
-        # output(f"{self.index} : before await")
+        output(f"round_nr {self.round_nr} {self.index} : before await")
         # waits to receive all marks from all the neighbors
-        await(len(self.desire_marks) == len(self.neighbors_indexes))
-        # output(f"{self.index} : after await")
+        await(len(self.desire_marks[self.round_nr]) == len(self.neighbors_indexes))
+        output(f"round_nr {self.round_nr} {self.index} : after await")
         
         # if he wants to be in the mis no one else can be
-        if 'IN MIS' in [x[1] for x in self.desire_marks] and self.MIS == 'IN MIS':
+        if 'IN MIS' in [x[1] for x in self.desire_marks[self.round_nr]] and self.MIS == 'IN MIS':
             self.MIS = 'NOT DECIDED'
             
-        # output(f"{self.index} : {self.MIS}")          
+        output(f"round_nr {self.round_nr} {self.index} : after more consideration he chose {self.MIS}")          
         
         # informs his neighbors if he is in the mis
         send(('i am in the mis', self.index, self.MIS == 'IN MIS'), to = self.neighbors_process_ids)
+        await(each(p in self.neighbors_process_ids, has= some(received(('confirmation 2'), from_= p))))
+        output(f"round_nr {self.round_nr} {self.index} : has all confirmation 2")
         
             
     def receive(msg = ('desire_level + mark', desire_level, mis, index), from_ = x):
-        self.desire_marks.append([desire_level, mis, index])
+        if self.round_nr in self.desire_marks.keys():  
+            self.desire_marks[self.round_nr].append([desire_level, mis, index])
+        else:
+            self.desire_marks[self.round_nr] = [[desire_level, mis, index]]
         # output(f"{self.index} receives desire from {index} {self.desire_marks} {self.neighbors_indexes}")
         send(('confirmation'), to = x)
         
             
-    def receive(msg = ('i am in the mis', index, bool)):
+    def receive(msg = ('i am in the mis', index, bool), from_ = source):
         if bool == True:
-            
+            output(f"round_nr {self.round_nr} {self.index} : receives from {index} that he is in the mis")
             self.MIS = 'NOT IN MIS'
         
-        send(('i am not in the mis', self.index, self.neighbors_indexes, bool), to = self.neighbors_process_ids)
+        send(('i am not in the mis', self.index, self.neighbors_indexes, bool), to = filter(lambda x : x != source, self.neighbors_process_ids))
+        send(('confirmation 2'), to = source)
             
     def receive(msg = ('i am not in the mis', index, neighbors_indexes, bool)):
         if bool == True:
