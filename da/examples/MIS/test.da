@@ -1,0 +1,64 @@
+import da
+config(handling = 'one', channel = 'reliable')
+config(channel is fifo, clock is lamport)
+
+class Coordinator(process):
+    def setup(neighbors: tuple):
+        output("setting up the coordinator")
+        self.neighbors = list(neighbors)
+        self.round_nr = 0
+    
+    def run():
+        while self.round_nr < 3:
+            for p in self.neighbors:
+                c = logical_clock()
+                send(('start round', c, round_nr), to = p)
+                
+            await(each(p in self.neighbors, has=received(('done', self.round_nr), from_= p)))
+            c = logical_clock()
+            output(f"{Coordinator}: received all confirmation for round {round_nr} at {c}")
+            self.round_nr += 1
+        
+
+class P(process):
+    def setup(index: int, neighbors: tuple):
+        self.neighbors = list(neighbors)
+        
+    def run():
+        await()
+        
+    def receive(msg = ('start round', time, round_nr), from_ = coordinator):
+        self.round_nr = round_nr  
+        c = logical_clock()
+        output(f"{self.round_nr} !! {self.index} starts at {c}")  
+        
+        for p in self.neighbors:
+            c = logical_clock()
+            send(('hi', c, self.index, self.round_nr), to = p)
+        await(each(p in self.neighbors, has=received(('confirmation', self.round_nr), from_= p)))
+        c = logical_clock()
+        output(f"{self.index}: received all confirmation for round {self.round_nr} at {c}")
+        send(('done', self.round_nr), to = coordinator)
+
+    def receive(msg = ('hi', time, index, round), from_= p):
+        c = logical_clock() 
+        output(f"{round} !! {self.index} : {c} <- {index} : {time}")
+        send(('confirmation', round), to = p)
+        
+        
+def main():
+    ps = []
+    for i in range(0, 3):
+        p = new(P)
+        ps.append(p)
+        
+    coord = new(Coordinator)
+    setup({coord}, (tuple(ps),))
+    
+    for i, p in enumerate(ps): 
+        neigh = tuple(filter(lambda x: x != p, ps))
+        output(neigh)
+        setup({p}, (i + 1, neigh))
+    
+    start(ps)
+    start(coord)
