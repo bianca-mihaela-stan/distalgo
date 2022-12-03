@@ -58,7 +58,6 @@ class P(process):
         self.coordinator = coordinator
         self.MIS = 'NOT DECIDED'
         self.desire_level = 0.5
-        self.effective_degree = None
         self.desire_marks = {}
         self.round_nr = 1
         self.received_mis = {}
@@ -75,8 +74,6 @@ class P(process):
     def receive(msg = ('start round', round_nr)):
         self.round_nr = round_nr
         self.expect_confirmation_from = len(list(self.neighbors.items()))
-        output(f"{self.index} : starting round {self.round_nr}")
-        output(f"MIS FROM NEIGHBORS {self.mis_from_neighbors}")
         
         if self.round_nr not in list(self.desire_marks.keys()):
             self.desire_marks[self.round_nr] = []
@@ -84,23 +81,18 @@ class P(process):
         if self.round_nr not in list(self.received_mis.keys()):
             self.received_mis[self.round_nr] = []
             
-        if self.round_nr - 1 in list(self.desire_marks.keys()):
-            self.effective_degree = sum([x[0] for x in self.desire_marks[self.round_nr - 1]])
-            if self.effective_degree >= 2:
-                self.desire_level = self.desire_level / 2
-            else:
-                self.desire_level = min(2 * self.desire_level, 0.5)
+        self.desire_level = len(self.neighbors) if len(self.neighbors) != 0 else 1 
                 
-        self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[self.desire_level, 1 - self.desire_level])[0]
+        self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[1 / self.desire_level, 1 - 1 / self.desire_level])[0]
         
         send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
-        output(f"{self.index} : {list(self.neighbors.values())}")
         await(each(p in list(self.neighbors.values()), has=received(('confirmation1', self.round_nr), from_= p)))
         
         await(len(self.desire_marks[self.round_nr]) == self.expect_confirmation_from)
         
-        if 'IN MIS' in [x[1] for x in self.desire_marks[self.round_nr]] and self.MIS == 'IN MIS':
-            self.MIS = 'NOT DECIDED'
+        if self.MIS == "IN MIS":
+            if len(list(filter(lambda x : x[1] == "IN MIS" and x[0] >= self.desire_level, self.desire_marks[self.round_nr]))) != 0:
+                self.MIS = "NOT DECIDED"
             
         send(('i am in the mis', self.index, self.MIS, round_nr), to = list(self.neighbors.values()))
         await(each(p in list(self.neighbors.values()), has=received(('confirmation2', self.round_nr), from_= p)))
@@ -121,8 +113,6 @@ class P(process):
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
-        if self.MIS != "NOT DECIDED":
-            end(self)
         
     def receive(msg = ('desire_level + mark', desire_level, mis, index, round_nr), from_ = source):
         if round_nr in list(self.desire_marks.keys()):
