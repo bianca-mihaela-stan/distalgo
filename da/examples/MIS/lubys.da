@@ -4,8 +4,15 @@ import random
 import os
 import copy
 import time
-f = open(r'/home/bianca/licenta/distalgo/da/examples/MIS/graphs/100/graph0.txt')
-f2 = open('/home/bianca/licenta/distalgo/da/examples/MIS/found_mis.txt', "w")
+import sys
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/{nr_nodes}_total_time_results.txt', "a")
+node_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/{nr_nodes}/graph{which_graph}/run{which_run}_node_time_results.txt', "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
 config(handling = 'one', channel = 'reliable')
 
 
@@ -19,11 +26,12 @@ class Coordinator(process):
         self.keep_going = True
         self.round_nr = 0
         self.await_ack_from_nr = 0
+        self.stop_times = {i : None for i in range(1, self.nr_nodes)}
         
     def run():
         await(len(setof(a, received(('hi', a, _, _)))) == self.nr_nodes - 1)
         
-        
+        self.start_time = time.time()
         while self.keep_going == True:
             self.await_ack_from_nr = len(list(self.nodes.keys()))
             self.keep_going = False
@@ -33,16 +41,22 @@ class Coordinator(process):
             send(('start round', self.round_nr), to = list(self.nodes.values()))
             
             await(len(setof(a, received(('done', a, _, self.round_nr)))) == self.await_ack_from_nr)
-            # output("received all done")
             
-        # output(f"INITIAL NEIGHBORS {self.initial_neighbors}")
         output(self.mis)
         
         self.stop = time.time()
         output(f"total time: {self.stop - self.start}")
-        f2.write(f"total time: {self.stop - self.start}")
-        f2.close()
-        output('done writing total time')
+        total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
+        total_time_results.close()
+        
+        
+        output(self.stop_times)
+        
+        output(self.start_time)
+        
+        for index in self.stop_times.keys():
+            node_time_results.write(f"{index} : {self.stop_times[index] - self.start_time}\n")
+        node_time_results.close()
         
         for key in self.initial_neighbors.keys():
             all = False
@@ -62,7 +76,6 @@ class Coordinator(process):
         self.initial_neighbors[index] = list(neighbors)
         
     def receive(msg = ('done', index, node_mis, round_nr)):
-        # output(f"coordinator {self.round_nr}: received {node_mis} from {index}")
         if index not in list(self.nodes.keys()):
             return
         
@@ -71,6 +84,7 @@ class Coordinator(process):
             
         if node_mis == 'IN MIS' or node_mis == 'NOT IN MIS':
             self.nodes.pop(index)
+            self.stop_times[index] = time.time()
             
         if node_mis == 'NOT DECIDED':
             self.keep_going = True
@@ -87,12 +101,11 @@ class P(process):
         self.expect_confirmation_from = 0
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        self.terminate = False
         
     def run():
         send(('hi', self.index, self, tuple(self.neighbors.keys())), to = self.coordinator)
-        # output(f"{self.index} : {self.neighbors}")
-        await()
-        # output("ended")
+        await(self.terminate == True)
         
     def receive(msg = ('start round', round_nr)):
         self.round_nr = round_nr
@@ -111,7 +124,6 @@ class P(process):
         else:
             self.desire_level = len(self.neighbors)
             
-        # output(f"{self.index} has neighbors {self.neighbors.keys()} and desire level {self.desire_level}")
         self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[1 / self.desire_level, 1 - 1 / self.desire_level])[0]
         
         send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
@@ -144,6 +156,8 @@ class P(process):
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
+        if self.MIS != "NOT DECIDED":
+            self.terminate = True
         
     def receive(msg = ('desire_level + mark', desire_level, mis, index, round_nr), from_ = source):
         if round_nr in list(self.desire_marks.keys()):
@@ -172,7 +186,6 @@ def main():
         line = line.strip("\n")
         list = line.split(' ')
         x = list[0]
-        # output(list)
         dict[n] = [int(x) for x in list[2:(-1)]]
         line = f.readline()
         n += 1
@@ -181,7 +194,6 @@ def main():
         p = new(P, method = 'thread')
         ps.append(p)
     
-    # output(dict)
     
     coordinator = new(Coordinator)
     setup({coordinator}, (n,))
