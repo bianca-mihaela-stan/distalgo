@@ -71,25 +71,7 @@ class DALoopProfile(TestProfile):
     def run_profile(self):
         return ['dar', self.target] + list(self.args)
 
-class ErlProfile(TestProfile):
-    @property
-    def run_profile(self):
-        path_components = self.target.split(os.sep)
-        mod = path_components[-1]
-        indir = os.sep.join(path_components[:-1])
-        return ['erl', '-noshell', '-pa', indir, '-run', mod, 'start'] + \
-            list(self.args)
-
 targets = [
-    ErlProfile(
-        target='lamutex/Erlang/lamutex',
-        args=(range(25, 150+1, 25), '30'),
-        repeat=10),
-    ErlProfile(
-        target='lamutex/Erlang/lamutex',
-        args=('10', range(100, 1000+1, 100)),
-        repeat=10),
-
     DAProfile(
         target=('lamutex/orig.da.py', None),
         args=(range(5, 20+1, 2), '5'),
