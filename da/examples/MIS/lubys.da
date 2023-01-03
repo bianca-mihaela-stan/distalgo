@@ -10,8 +10,21 @@ nr_nodes = sys.argv[1]
 which_graph = sys.argv[2]
 which_run = sys.argv[3]
 
-total_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/{nr_nodes}_total_time_results.txt', "a")
-node_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/{nr_nodes}/graph{which_graph}/run{which_run}_node_time_results.txt', "a")
+total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/lubys'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/lubys/{nr_nodes}/graph{which_graph}'
+
+total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
+
+
+if not os.path.exists(total_time_results_dir):
+    os.makedirs(total_time_results_dir)
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+
+total_time_results = open(total_time_results_path, "a")
+node_time_results = open(node_time_results_path, "a")
 f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
 config(handling = 'one', channel = 'reliable')
 
