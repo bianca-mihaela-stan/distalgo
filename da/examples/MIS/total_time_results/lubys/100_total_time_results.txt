@@ -1,0 +1,9 @@
+total time: 0.7478334903717041 graph : 0 run : 1
+total time: 0.7421925067901611 graph : 0 run : 1
+total time: 0.6620748043060303 graph : 0 run : 1
+total time: 0.7448573112487793 graph : 0 run : 1
+total time: 0.5264163017272949 graph : 0 run : 1
+total time: 0.6449108123779297 graph : 0 run : 1
+total time: 0.6431946754455566 graph : 0 run : 1
+total time: 0.5640418529510498 graph : 0 run : 1
+total time: 0.7349390983581543 graph : 0 run : 1
