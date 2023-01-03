@@ -4,8 +4,14 @@ import random
 import os
 import copy
 import time
-f = open(r'/home/bianca/distAlgo/distalgo/da/examples/MIS/graph3.txt')
-f2 = open('/home/bianca/distAlgo/distalgo/da/examples/MIS/found_mis.txt', "w")
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/{nr_nodes}_total_time_results.txt', "a")
+node_time_results = open(f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/{nr_nodes}/graph{which_graph}/run{which_run}_node_time_results.txt', "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
 config(handling = 'one', channel = 'reliable')
 
 
@@ -19,10 +25,12 @@ class Coordinator(process):
         self.keep_going = True
         self.round_nr = 0
         self.await_ack_from_nr = 0
+        self.stop_times = {i : None for i in range(1, self.nr_nodes)}
         
     def run():
         await(len(setof(a, received(('hi', a, _, _)))) == self.nr_nodes - 1)
         
+        self.start_time = time.time()
         while self.keep_going == True:
             self.await_ack_from_nr = len(list(self.nodes.keys()))
             self.keep_going = False
@@ -35,8 +43,15 @@ class Coordinator(process):
             # output("received all done")
             
         output(self.mis)
+        
         self.stop = time.time()
-        output(f"total time {self.stop - self.start}")
+        output(f"total time: {self.stop - self.start}")
+        total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
+        total_time_results.close()
+        
+        for index in self.stop_times.keys():
+            node_time_results.write(f"{index} : {self.stop_times[index] - self.start_time}\n")
+        node_time_results.close()
         
         for key in self.initial_neighbors.keys():
             all = False
@@ -65,6 +80,7 @@ class Coordinator(process):
             
         if node_mis == 'IN MIS' or node_mis == 'NOT IN MIS':
             self.nodes.pop(index)
+            self.stop_times[index] = time.time()
             
         if node_mis == 'NOT DECIDED':
             self.keep_going = True

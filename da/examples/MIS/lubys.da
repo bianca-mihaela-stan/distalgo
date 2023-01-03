@@ -49,11 +49,6 @@ class Coordinator(process):
         total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
         total_time_results.close()
         
-        
-        output(self.stop_times)
-        
-        output(self.start_time)
-        
         for index in self.stop_times.keys():
             node_time_results.write(f"{index} : {self.stop_times[index] - self.start_time}\n")
         node_time_results.close()
