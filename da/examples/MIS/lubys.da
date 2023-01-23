@@ -59,6 +59,7 @@ class Coordinator(process):
         
         self.stop = time.time()
         output(f"total time: {self.stop - self.start}")
+        output(f"total nr of rounds: {self.round_nr}")
         total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
         total_time_results.close()
         
@@ -118,8 +119,10 @@ class P(process):
     def receive(msg = ('start round')):
         self.expect_confirmation_from = len(list(self.neighbors.items()))
             
+        # If this node has no neighbors it will for sure be in the MIS.
         if len(self.neighbors) == 0:
             self.desire_level = 1
+        # If he only has one neighbor, it's not sure that he will be in the MIS, so we need to prevent the desire level from being 1.
         elif len(self.neighbors) == 1:
             self.desire_level = 2
         else:

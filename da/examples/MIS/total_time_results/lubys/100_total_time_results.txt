@@ -7,3 +7,7 @@ total time: 0.6449108123779297 graph : 0 run : 1
 total time: 0.6431946754455566 graph : 0 run : 1
 total time: 0.5640418529510498 graph : 0 run : 1
 total time: 0.7349390983581543 graph : 0 run : 1
+total time: 0.7612106800079346 graph : 0 run : 1
+total time: 0.6144833564758301 graph : 0 run : 1
+total time: 0.6464047431945801 graph : 0 run : 1
+total time: 0.6525216102600098 graph : 0 run : 1

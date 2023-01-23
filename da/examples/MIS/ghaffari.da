@@ -59,6 +59,7 @@ class Coordinator(process):
         
         self.stop = time.time()
         output(f"total time: {self.stop - self.start}")
+        output(f"total nr of rounds: {self.round_nr}")
         total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
         total_time_results.close()
         
