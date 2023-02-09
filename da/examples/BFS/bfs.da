@@ -1,0 +1,133 @@
+import da
+import sys
+import random
+import os
+import copy
+import time
+import sys
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/total_time_results/lubys'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/node_time_results/lubys/{nr_nodes}/graph{which_graph}'
+
+total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
+
+
+if not os.path.exists(total_time_results_dir):
+    os.makedirs(total_time_results_dir)
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+
+total_time_results = open(total_time_results_path, "a")
+node_time_results = open(node_time_results_path, "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MST/graphs/{nr_nodes}/graph{which_graph}.txt")
+config(handling = 'one', channel = 'reliable')
+   
+class Coordinator(process):
+    def setup(nr_nodes:int):
+        self.start = time.time()
+        self.initial_neighbors = {}
+        self.nodes = {}
+        self.nr_nodes = nr_nodes
+        self.mis = []
+        self.keep_going = True
+        self.round_nr = 0
+        self.await_ack_from_nr = 0
+        self.stop_times = {i : None for i in range(1, self.nr_nodes)}
+        
+    def run():
+        await(len(setof(a, received(('hi', a)))) == self.nr_nodes - 1)
+        
+        while self.keep_going == True:
+            self.await_ack_from_nr = len(list(self.nodes.keys()))
+            self.keep_going = False
+            
+            self.round_nr += 1
+            
+            send(('start round'), to = list(self.nodes.values()))
+            
+            await(len(setof(a, received(('done', a, _, self.round_nr)))) == self.await_ack_from_nr)
+
+        
+        
+    def receive(msg = ('hi', index)):
+        output("received hi")
+        self.nodes[index] = id
+        
+
+
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple, coordinator: int):
+        self.index = index
+        self.neighbors_processes = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
+        self.neighbors_weights = {neighbors_indexes[i]: neighbors_weights[i] for i in range(len(neighbors_indexes))}
+        self.visited = False
+        self.coordinator = coordinator
+        self.round = 1
+        self.parent = None
+        
+        output(f"{self.index} : {list(self.neighbors_processes.keys())}")
+        
+        
+    def run():
+        send(("hi", self.index), to = self.coordinator)
+        if self.index == 1:
+            send(('search', self.index), to = list(self.neighbors_processes.values()))
+        
+    def receive(msg = ("search", index), from_= source):
+        self.visited = True
+        self.parent = index
+        send(("done", index), to = self.coordinator)
+        
+    def receive(msg = ("start round")):
+        send(('search', self.index), to = list(self.neighbors_processes.values()))
+        
+        
+        
+    
+        
+        
+        
+        
+
+def main():
+    dict = {}
+    weights = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        list = line.split(' ')
+        x = list[0]
+        list = list[2:]
+        list = [x.split(",") for x in list]
+        dict[n] = [int(x[0]) for x in list]
+        weights[n] = [int(x[1]) for x in list]
+        line = f.readline()
+        n += 1
+    ps = []
+    
+    output(dict)
+    output(weights)
+    
+    coordinator = new(Coordinator)
+    setup({coordinator}, (n,))
+    start(coordinator)
+    
+    for i in range(1, n):
+        p = new(P, method = 'thread')
+        ps.append(p)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), tuple(weights[i+1]), coordinator))
+        
+    start(ps)
