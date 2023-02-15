@@ -28,35 +28,9 @@ node_time_results = open(node_time_results_path, "a")
 f = open(f"/home/bianca/licenta/distalgo/da/examples/MST/graphs/{nr_nodes}/graph{which_graph}.txt")
 config(handling = 'one', channel = 'reliable')
    
-# INIT = "INIT"
-# AWAIT_PULSE = "AWAIT_PULSE"
-# AWAIT_ACK_FRAGS_AND_OUT = "AWAIT_ACK_FRAGS_AND_OUT"
-# AWAIT_CHOSEN_ROOT = "AWAIT_CHOSEN_ROOT"
-# AWAIT_NEW_MESSAGE = "AWAIT_NEW_MESSAGE"
-# AWAIT_ECHOS_AND_ACK_MERGES = "AWAIT_ECHOS_AND_ACK_MERGES"
-# FINISHED = "FINISHED"
-# class State(Enum):
-#     global INIT, AWAIT_PULSE, AWAIT_ACK_FRAGS_AND_OUT, AWAIT_CHOSEN_ROOT, AWAIT_NEW_MESSAGE, AWAIT_ECHOS_AND_ACK_MERGES, FINISHED
-#     INIT = 1
-#     AWAIT_PULSE = 2
-#     AWAIT_ACK_FRAGS_AND_OUT = 3
-#     AWAIT_CHOSEN_ROOT = 4
-#     AWAIT_NEW_MESSAGE = 5
-#     AWAIT_ECHOS_AND_ACK_MERGES = 6
-#     FINISHED = 7
 
 class P(process):
     def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple):
-        # self.index = index
-        # self.neighbors_processes = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
-        # self.neighbors_weights = {neighbors_indexes[i]: neighbors_weights[i] for i in range(len(neighbors_indexes))}
-        # self.leader = index
-        # self.level = 0
-        # self.terminate = False
-        # self.outgoing_edge = None
-        
-        # output(f"{self.index} : {list(self.neighbors_processes.keys())}")
-        
         output("got here")
         neighbors_indexes = list(neighbors_indexes)
         neighbors_process_ids = list(neighbors_process_ids)
@@ -68,17 +42,25 @@ class P(process):
         - Find: while participating in the fragment's search for the minimum-weight outgoing edge
         - Found: rest of the time?
         """
+        # SN = state of a node
         self.SN = "Sleeping"
-        self.branches = {}
-        self.ids_to_neigh = {}
+        # FN = fragment node identity
         self.FN = index
         self.index = index
+        # LN = level of node
         self.LN = 0
+        # best_edge = best outgoing edge for each node
         self.best_edge = None
+        # best_wt = best outgoing weight for each node
         self.best_wt = None
+        
         self.test_edge = None
+        # in_branch = branch to the leader edge of the fragment
         self.in_branch = None
         self.find_count = None
+        # number_id : [id, weight, edge state]
+        # SE(j) is the state of an edge
+        self.branches = {}
         for i in range(len(neighbors_indexes)):
             x = neighbors_indexes[i]
             self.branches[x] = [neighbors_process_ids[i], neighbors_weights[i], "Basic"]
@@ -100,7 +82,7 @@ class P(process):
     def wakeup():
         """
         HOW A LEVEL 0 NODE FINDS ITS MWOE
-        When a weight is woken up, it:
+        When a node is woken up, it:
         - first chooses its minimum-weight adjecent edge
         - marks this edge as a Branch of the MST
         - sends a Connect message over this edge
@@ -108,64 +90,7 @@ class P(process):
         - waits for a response from the fragment at the other end of the selected edge
         """
         
-        
-        """
-        HOW MERGING WORKS
-        For 2 level L-1 fragments that just joined to form a level L fragment over an edge G.
-        This edge G becomes the core of the new fragment and the fragment is identified by the id of this edge.
-        The 2 nodes adjacent to the core start the new cycle by broadcasting an Initiate message to the other nodes of the fragment.
-        This message carries the new fragment level and identity. It also places nodes in the Find state.
-        """
-        
-        """
-        HOW A LEVEL > 0 NODE FINDS ITS MWOE
-        In order to find the minimum weight outgoing edge a node picks the minimum weight Basic edge and send a Test message on it.
-        The test message carries the fragment identity and level.
-        
-        When a node receives such a test message it checks whether the fragment identities are identical.
-        If they are, it sends a Reject message back. Both nodes put the edge into a Rejected state.
-        
-        The node sending the test message continues by testing the next-best edge.
-        
-        If the node receiving the test message has a different identity and a >= level, it sends an Accept.
-        If the level is <= it does not respond yet, it waits for its level to become bigger.
-        
-        The reason for this is that when 2 fragments merge, you have to update the identity for all the nodes.
-        We restrict this to only update when the level increases.
-        """
-        
-        """
-        HOW THE NODES IN A FRAGMENT COOPERATE TO FIND THE OVERALL MWOE
-        Each leaf node in the fragment (so a node that has only one Basic edge) sends a message Report(W) on that Basic branch.
-        W is the weight of MWOE. If W is infinity, there is no outgoing branch for this node.
-        
-        Each interior node waits until both:
-        - it has found it's own MWOE
-        - received messages on all outbound fragment branches (so all Basic branches - 1)
-        
-        Then, the node chooses the best of these edges to be W and sends this over its inbound edge as Report(W).
-        
-        When it sends the Report message, it also goes to the state Found. 
-        
-        Eventually the report messages get to be sent over the core branch and those 2 nodes to determine the MWOE and the side of the edge 
-        where this MWOE is.
-        """
-        
-        """
-        SENDING THE CHANGE-CORE MESSAGE
-        The Change-core message is then sent over the path from the core edge to the MWOE. 
-        
-        The inbound edge for each node on the path is changed to be the best-edge.
-        
-        When this message reached the node with the MWOE the inbound edges form a rooted tree in this node.
-        
-        This node sends the message Connect(L) over the MWOE, where L is the level of the fragment.
-        
-        """
-        
-        
-        
-        
+        # Chooses its minimum weight adjacent edge
         min_node = None
         min_weight = None
         for (node, (node_id, weight, state)) in self.branches.items():
@@ -173,37 +98,66 @@ class P(process):
                 min_node = node
                 min_weight = weight
              
+        # Marks this branch as part of the MST.
         self.branches[min_node][2] = "Branch"   
         self.LN = 0
         self.SN = "Found"
         self.find_count = 0
         
+        # Sends a Connect message over this edge.
         send(("Connect", self.LN, self.index), to = self.branches[min_node][0])
-        output(f"{self.index} : sent connect")
+        # Waits for a response from the fragment at the other end.
+        # !!! aici mai trebuie un await
+        # output(f"{self.index} : sent connect")
         
     def receive(msg = ("Connect", L, source_index), from_ = source):
         output(f"{self.index} : received a connect")
         if self.SN == "Sleeping":
             wakeup()
         if L < self.LN:
-            # current branch is self.index -> source_index
+            """
+            INTERACTION BETWEEN LOW LEVEL FRAGMENT F with node n AND HIGH LEVEL FRAGMENT F' with node n'
+            There is a strategy in place ot not make low-level fragments wait. 
+
+            So if a node n sends a message to F' and it reaches n', n' immediately sensds an initiate message with identity and level to n.
+
+            If node n' has not yet sent its report message at the given level, fragment F joins the search for the MWOE. In this case you send the 
+            node state Find.
+
+            It it has sent its report message, we can deduce that an outgoing edge from node n' has a lower weight thatn the MWOE from F. In this case
+            you send the node state Found.
+
+            """
+            
+            
+            # The branch connecting the 2 fragments is part of the MST.
             self.branches[source_index][2] = "Branch"
-            send(("Initiate", self.LN, self.FN, self.SN), to = source)
+            
+            send(("Initiate", self.LN, self.FN, self.SN, self.index), to = source)
             if self.SN == "Find":
                 self.found_count += 1
+                
         elif self.branches[source_index][2] == "Basic":
+            # If the level is <= it does not respond yet, it waits for its level to become bigger.
+            
+            # Resends the message to itself.
             send(("Connect", L, source_index), to = self)
         else:
-            send(("Initiate", self.LN + 1, self.branches[source_index][1], "Find"), to = source)
+            send(("Initiate", self.LN + 1, self.branches[source_index][1], "Find", self.index), to = source)
         
     def receive(msg = ("Initiate", L, F, S, source_index)):
+        # Becoming a higher level.
         self.LN = L
+        # Taking the fragment identity.
         self.FN = F
+        # Taking the node state indicated.
         self.SN = S 
+        # The in branch is the one through which you receive the frament
         self.in_branch = source_index
         self.best_edge = None 
         self.best_wt = 1000000
         
+        # Continuing to propagate the new fragment id.
         for branch in list(self.branches.values()):
             send(("Initiate", L, F, S, self.index), to = branch[0])
             if S == "Find":
@@ -214,29 +168,80 @@ class P(process):
     def test():
         self.test_edge = None
         min_weight = None
+        # figure out if there are adjacent edges in the state Basic
         basic_adjacent = False
         for branch in list(self.branches.values()):
             if branch[2] == "Basic":
                 basic_adjacent = True
                 break
         
+        
         if basic_adjacent == True:
+            
             for branch in list(self.branches.values()):
-                if min_weight == None or min_weight > branch[1]:
-                    min_weight = branch[1]
-                    self.test_edge = branch[2]
-            send(("Test", self.LN, self.FN), to = self.test_edge)
+                # make test_edge = minimum weight outgoing edge in state Basic
+                if branch[2] == "Basic":
+                    if min_weight == None or min_weight > branch[1]:
+                        min_weight = branch[1]
+                        self.test_edge = branch[0]
+              
+            # Send test on test_edge.          
+            send(("Test", self.LN, self.FN, self.index), to = self.test_edge)
         else:
             self.test_edge = None
             report()
             
+    def receive(msg = ("Test", L, F, source_index)):
+        if self.state == "Sleeping":
+            wakeup()
+        if L > self.LN:
+            # !!! place received message at the end of the queue
+            send(("Test", L, F, source_index), to = self)
+        elif F != self.FN:
+            send(("Accept", self.index), to = self.branches[source_index][0])
+        else:
+            if self.branches[source_index][2] == "Basic":
+                self.branches[source_index][2] = "Rejected"
+            if self.test_edge != self.branches[source_index][0]:
+                send(("Reject", self.index), to = self.branches[source_index][0])
+            else:
+                test()
+                
+    def receive(msg = ("Accept", source_index)):
+        self.test_edge = None
+        if self.branches[source_index][1] < self.best_wt:
+            self.best_edge = source_index
+            self.best_wt = self.branches[source_index][1]
+            report()
+            
+    def receive(msg = ("Reject", source_index)):
+        if self.branches[sourxe_index][2] == "Basic":
+            self.branches[sourxe_index][2] = "Rejected"
+            test()
+            
     def report():
         if self.find_count == 0 and self.test_edge == None:
             self.SN = "Found"
-            send(("Report", self.best_wt), to = self.in_branch)
+            send(("Report", self.best_wt, self.index), to = self.in_branch)
             
-            
-    def receive(msg = ("Test", L, F)):
+    def receive(msg = ("Report", w, source_index)):
+        if source_index != self.in_branch:
+            find_count -= 1
+            if w > self.best_wt:
+                change_root()
+            elif w == self.best_wt and w == 100000:
+                # !!! halt !!!
+    
+    def change_root():
+        if self.branches[best_edge][2] == "Branch":
+            send(("Change root", self.index), to = best_edge)
+        else:
+            send(("Connect", self.LN, self.index), to = best_edge)
+            self.branches[best_edge][2] = "Branch"
+
+    def receive(msg = ("Change root", source_index)):
+        change_root()        
+        
         
                         
 
