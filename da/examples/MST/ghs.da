@@ -5,6 +5,7 @@ import os
 import copy
 import time
 import sys
+import math
 
 nr_nodes = sys.argv[1]
 which_graph = sys.argv[2]
@@ -45,6 +46,7 @@ class P(process):
         # SN = state of a node
         self.SN = "Sleeping"
         # FN = fragment node identity
+        # this is supposed to be a weight but since at level 0 we have no edges it's the index
         self.FN = index
         self.index = index
         # LN = level of node
@@ -93,7 +95,7 @@ class P(process):
         # Chooses its minimum weight adjacent edge
         min_node = None
         min_weight = None
-        for (node, (node_id, weight, state)) in self.branches.items():
+        for (node, (_, weight, _)) in self.branches.items():
             if min_weight == None or weight < min_weight:
                 min_node = node
                 min_weight = weight
@@ -107,68 +109,67 @@ class P(process):
         # Sends a Connect message over this edge.
         send(("Connect", self.LN, self.index), to = self.branches[min_node][0])
         # Waits for a response from the fragment at the other end.
-        # !!! aici mai trebuie un await
+        await(received(('Initiate', _, _, _, min_node)))
         # output(f"{self.index} : sent connect")
         
     def receive(msg = ("Connect", L, source_index), from_ = source):
         output(f"{self.index} : received a connect")
         if self.SN == "Sleeping":
             wakeup()
+            
         if L < self.LN:
-            """
-            INTERACTION BETWEEN LOW LEVEL FRAGMENT F with node n AND HIGH LEVEL FRAGMENT F' with node n'
-            There is a strategy in place ot not make low-level fragments wait. 
-
-            So if a node n sends a message to F' and it reaches n', n' immediately sensds an initiate message with identity and level to n.
-
-            If node n' has not yet sent its report message at the given level, fragment F joins the search for the MWOE. In this case you send the 
-            node state Find.
-
-            It it has sent its report message, we can deduce that an outgoing edge from node n' has a lower weight thatn the MWOE from F. In this case
-            you send the node state Found.
-
-            """
+            # A node with a lower level wants to connect to me. I will respond immediately and he will be absorbed into me.
             
-            
-            # The branch connecting the 2 fragments is part of the MST.
+            # The branch connecting me to that fragment is now part of the MST.
             self.branches[source_index][2] = "Branch"
             
+            # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             send(("Initiate", self.LN, self.FN, self.SN, self.index), to = source)
-            if self.SN == "Find":
-                self.found_count += 1
-                
-        elif self.branches[source_index][2] == "Basic":
-            # If the level is <= it does not respond yet, it waits for its level to become bigger.
             
-            # Resends the message to itself.
+            # If I'm still looking for the MWOE I need to wait for a response from one more node.
+            if self.SN == "Find":
+                self.find_count += 1
+                
+        elif L >= self.LN and self.branches[source_index][2] == "Basic":
+            # An equal or bigger fragment wants to connect to me.
+            
+            # I will deal with this later when my level goes up.
             send(("Connect", L, source_index), to = self)
-        else:
+        elif L == self.LN and self.branches[source_index][2] == "Branch":
+            # An equal fragment wants to join with me.
+            
+            # Both our levels  will become bigger and our fragment identity will be the edge between us.
+            # Also we start out in a state Find.
             send(("Initiate", self.LN + 1, self.branches[source_index][1], "Find", self.index), to = source)
         
     def receive(msg = ("Initiate", L, F, S, source_index)):
-        # Becoming a higher level.
+        # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
         self.LN = L
-        # Taking the fragment identity.
         self.FN = F
-        # Taking the node state indicated.
         self.SN = S 
         # The in branch is the one through which you receive the frament
         self.in_branch = source_index
         self.best_edge = None 
-        self.best_wt = 1000000
+        self.best_wt = math.inf
         
         # Continuing to propagate the new fragment id.
         for branch in list(self.branches.values()):
             send(("Initiate", L, F, S, self.index), to = branch[0])
+            
+            # Counting all the nodes I need to hear from to calculate my MWOE.
             if S == "Find":
                 self.find_count += 1
+                
+        # Starting to look for the MWOE.
         if S == "Find":
             test()
             
     def test():
+        # Looking for the MWOE.
+        
         self.test_edge = None
         min_weight = None
-        # figure out if there are adjacent edges in the state Basic
+        # Figure out if there are adjacent edges in the state Basic.
         basic_adjacent = False
         for branch in list(self.branches.values()):
             if branch[2] == "Basic":
@@ -178,36 +179,68 @@ class P(process):
         
         if basic_adjacent == True:
             
-            for branch in list(self.branches.values()):
-                # make test_edge = minimum weight outgoing edge in state Basic
+            for (index,branch) in list(self.branches.items()):
+                # Make test_edge = minimum weight outgoing edge in state Basic.
                 if branch[2] == "Basic":
                     if min_weight == None or min_weight > branch[1]:
                         min_weight = branch[1]
-                        self.test_edge = branch[0]
+                        self.test_edge = index
               
-            # Send test on test_edge.          
-            send(("Test", self.LN, self.FN, self.index), to = self.test_edge)
+            # Send test on test_edge.
+            # output(f"error after here? {self.branches[self.test_edge][0]} {self}")          
+            send(("Test", self.LN, self.FN, self.index), to = self.branches[self.test_edge][0])
+            # output("error here?")
         else:
+            # There are no adjacent edges in state Basic, so report up.
             self.test_edge = None
             report()
             
-    def receive(msg = ("Test", L, F, source_index)):
-        if self.state == "Sleeping":
+    def receive(msg = ("Test", L, F, source_index), from_ = source):
+        if self.SN == "Sleeping":
             wakeup()
-        if L > self.LN:
+            
+        output(f"never actually receiving test {self} {source}")
+        if L > self.LN and F != self.FN:
+            # A higher level fragment wants to test me. I'll wait until my level is higher.
+            
             # !!! place received message at the end of the queue
+            output(f"I received a test and I'm sending it back to myself and that's why {self}")
             send(("Test", L, F, source_index), to = self)
-        elif F != self.FN:
+
+        elif L <= self.LN and F != self.FN:
+            # A lower level different fragment wants to test me.
+            # I will accept.
+            
             send(("Accept", self.index), to = self.branches[source_index][0])
-        else:
+        elif F == self.FN:
+            output(f"after ")
+            
+            #!!! AICI E PROBLEMA, NU GASESTE self.branches[source_index]
+            
+            # Someone in the same fragment wants to test me.
+            
+            # If the branch is not already maked as rejected, I mark it.
             if self.branches[source_index][2] == "Basic":
+                output(f"basic")
+                
+                # I always mark the edge as rejected, but not always send the rejection message.
                 self.branches[source_index][2] = "Rejected"
-            if self.test_edge != self.branches[source_index][0]:
+                
+            if self.test_edge != source_index:
+                output(f"test_edge")
+                
+                # If the branch I sent a test message on is not the same as this one, I do send a reject message.
                 send(("Reject", self.index), to = self.branches[source_index][0])
             else:
+                output(f"else")
+                
+                # If the branch I sent a test message on is the same, I continue looking for the MWOE without sending the message.
                 test()
                 
+            output(f"after")
+                
     def receive(msg = ("Accept", source_index)):
+        # I found the MWOE for me.
         self.test_edge = None
         if self.branches[source_index][1] < self.best_wt:
             self.best_edge = source_index
@@ -215,27 +248,45 @@ class P(process):
             report()
             
     def receive(msg = ("Reject", source_index)):
-        if self.branches[sourxe_index][2] == "Basic":
-            self.branches[sourxe_index][2] = "Rejected"
+        # If I get rejected I mark the branch and continue testing.
+        if self.branches[source_index][2] == "Basic":
+            self.branches[source_index][2] = "Rejected"
             test()
             
     def report():
+        # If I am a leaf and I don't have any more edges to test, I mark myself as Found and report up.
         if self.find_count == 0 and self.test_edge == None:
             self.SN = "Found"
             send(("Report", self.best_wt, self.index), to = self.in_branch)
             
     def receive(msg = ("Report", w, source_index)):
+        # Someone reported up to me.
         if source_index != self.in_branch:
-            find_count -= 1
-            if w > self.best_wt:
+            # I have to wait for one less report.
+            self.find_count -= 1
+            if w < self.best_wt:
+                self.best_wt = w
+                self.best_edge = source_index
+                report()
+        elif self.in_branch == source_index:
+            # I've received a message over the core edge.
+            if self.SN == "Find":
+                # If I'm still looking for my personal MWOE so I can't talk over the core edge.
+                send(("Report", w, source_index), to = self)
+            elif w > best_wt:
+                # If my best edge is better, I'm going to change the root on my side.
                 change_root()
-            elif w == self.best_wt and w == 100000:
-                # !!! halt !!!
+            elif w == best_wt and w == math.inf:
+                # We have no root to change.
+                await()
+            
     
     def change_root():
+        # Remake the path to the best_edge by sending "Change root" throught the path.
         if self.branches[best_edge][2] == "Branch":
             send(("Change root", self.index), to = best_edge)
         else:
+            # Once you get to the best edge, send a connect message to the other fragment.
             send(("Connect", self.LN, self.index), to = best_edge)
             self.branches[best_edge][2] = "Branch"
 
