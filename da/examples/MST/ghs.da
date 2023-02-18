@@ -321,6 +321,7 @@ def main():
     n = 1
     while line:
         line = line.strip("\n")
+        line = line.strip(' ')
         list = line.split(' ')
         x = list[0]
         list = list[2:]
