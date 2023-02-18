@@ -252,25 +252,26 @@ class P(process):
         test()
             
     def report():
-        output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
         # If I am a leaf and I don't have any more edges to test, I mark myself as Found and report up.
         if self.find_count == 0 and self.test_edge == None:
+            output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
             self.SN = "Found"
             send(("Report", self.best_wt, self.index), to = self.branches[in_branch][0])
             
     def receive(msg = ("Report", w, source_index)):
-        output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch}")
+        output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN}")
         # Someone reported up to me.
+        
         if source_index != self.in_branch:
             # I have to wait for one less report.
             self.find_count -= 1
             if w < self.best_wt:
                 self.best_wt = w
                 self.best_edge = source_index
-                report()
+            report()
         elif self.in_branch == source_index:
             # I've received a message over the core edge.
-            if self.SN == "Find":
+            if self.SN == "Find" and self.find_count > 0:
                 # If I'm still looking for my personal MWOE so I can't talk over the core edge.
                 send(("Report", w, source_index), to = self)
             elif w > best_wt:
@@ -291,10 +292,10 @@ class P(process):
     def change_root():
         # Remake the path to the best_edge by sending "Change root" throught the path.
         if self.branches[best_edge][2] == "Branch":
-            send(("Change root", self.index), to = best_edge)
+            send(("Change root", self.index), to = self.branches[best_edge][0])
         else:
             # Once you get to the best edge, send a connect message to the other fragment.
-            send(("Connect", self.LN, self.index), to = best_edge)
+            send(("Connect", self.LN, self.index), to = self.branches[best_edge][0])
             self.branches[best_edge][2] = "Branch"
             log_results.write(f"{self.index} {best_edge}\n")
 
@@ -303,6 +304,10 @@ class P(process):
         
         
     def receive(msg = ("Kill", source_index)):
+        for (iterator, branch) in list(self.branches.items()):
+            if branch[2] == "Branch":
+                send(("Kill", source_index), to = branch[0])
+                output(f"KILLING {iterator}")
         self.kill = True
                     
               
