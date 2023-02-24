@@ -1,0 +1,246 @@
+import da
+import sys
+import random
+import os
+import copy
+import time
+import sys
+import math
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/total_time_results/ghs'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/node_time_results/ghs/{nr_nodes}/graph{which_graph}'
+mst_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/mst_results/ghs/{nr_nodes}/graph{which_graph}/run{which_run}'
+
+total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
+
+
+if not os.path.exists(total_time_results_dir):
+    os.makedirs(total_time_results_dir)
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+
+total_time_results = open(total_time_results_path, "a")
+node_time_results = open(node_time_results_path, "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MST/graphs/{nr_nodes}/graph{which_graph}.txt")
+log_results = open(mst_results_dir, "w")
+config(handling = 'one', channel = 'reliable')
+   
+
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple):
+        neighbors_indexes = list(neighbors_indexes)
+        neighbors_process_ids = list(neighbors_process_ids)
+        neighbors_weights = list(neighbors_weights)
+        
+        """
+        There are 3 possible states: 
+        - Sleeping: initial state
+        - Find: while participating in the fragment's search for the minimum-weight outgoing edge
+        - Found: rest of the time?
+        """
+        self.myID = index
+        self.myLevel = 0
+        self.myStatus = None
+        self.Fid = self.myID
+        self.inbranch = None
+        self.myHops = None
+        self.bestEdge = None
+        self.bestWeight = None
+        self.testEdge = None
+        self.IamRoot = None
+        self.IamLeader = None
+        self.localMOEfound = None
+        self.myPhaseIII = None
+        self.reportCount = None
+        self.sizeCount = None
+        self.LDlevel = None
+        self.minLeaderDistance = None
+        self.noRejectionsInThisTesting = None
+        
+        self.edges = {}
+        for i in range(len(neighbors_indexes)):
+            x = neighbors_indexes[i]
+            self.edges[x] = dict()
+            self.edges[x]["process_id"] = neighbors_process_ids[i]
+            self.edges[x]["weight"] = neighbors_weights[i]
+            self.edges[x]["state"] = "Basic"
+            
+        output(f"{self.index} {self.edges}")
+        self.kill = False
+            
+        
+        
+    def run():
+        if self.index == 1:
+            WakeUp()
+        
+        await(self.kill == True)
+        
+    def WakeUp():
+        self.myFid = self.myID
+        self.myLevel = 0
+        self.myHops = 0
+        self.myStatus = "Find"
+        self.IamRoot = True
+        self.myPhaseIII = False
+        
+        Initiate(self.myLevel, self.myFid, self.myStatus, self.myHops)
+        
+        
+    def Initiate(Level, Fid, Stat, Hops):
+        self.bestEdge = None
+        self.bestWeight = math.inf
+        self.testEdge = None
+        self.localMOEfound = False
+        self.IamLeader = False
+        self.reportCount = 0
+        self.sizeCount = 1
+       
+        for edge in self.edges.values():
+            edge["active"] = False
+            edge["resendAcceptSub"] = False
+            self.reportCount += 1
+            
+            send(("initiate", Level, Fid, Stat, Hops-1, self.myID), to = edge["process_id"])  
+            
+    def receive(msg = ("initiate", Level, Fid, Stat, Hops, source_index)):
+        if Hops == 0 and myPhaseIII == True:
+            send(("expInit", Level, self.index), to = self.edges[source_index]["process_id"])
+        
+        self.inbranch = source_index
+        self.myHops = Hops
+        if self.myLevel <= Level:
+            self.myLevel = Level
+            self.myFid = Fid
+            self.myStatus = Stat
+            Initiate(Level, Fid, Stat, Hops)
+            
+    def Test():
+        adjacentInStateBasic = False
+        minWeightBasic = math.inf
+        minEdgeBasic = None
+        for (iterator,edge) in self.edges.items():
+            if edge["state"] == "Basic":
+                adjacentInStateBasic = True
+                if edge["weight"] < minWeightBasic:
+                    minWeightBasic = edge["weight"]
+                    minEdgeBasic = iterator
+        
+        if adjacentInStateBasic == False:
+            self.localMOEfound = True
+            Report()
+        elif self.noRejectionsInThisTesting > 2**(self.myLevel + 1):
+            ExpInit(self.myLevel)
+        else:
+            self.testEdge = minEdgeBasic
+            send(("test", self.myLevel, self.myFid, self.myID), to = self.testEdge)
+            
+    def receive(msg = ("expInit", L, source_index)):
+        ExpInit(L)
+        
+    def ExpInit(L, source_index):
+        if self.myStatus == "Find" and L >= myLevel and self.myPhaseIII == True:
+            if self.IamRoot == False:
+                self.myStatus == "FoundNotified"
+                send(("expInit", L), to = self.edges[source_index]["process_id"])
+            else:
+                self.myLevel += 1
+                Initiate(2**(self.myLevel + 1), self.myFid, self.myStatus, self.myHops)
+            
+    def receive(msg = ("test", Level, Fid, source_index)):
+        if self.myFid == Fid:
+            self.edges[source_index]["status"] = "Rejected"
+            if self.testEdge == source_index:
+                Test()
+            else:
+                send(("reject", self.myFid, self.myID), to = self.edges[source_index]["process_id"])
+        elif Level > self.myLevel:
+            send(("test", Level, Fid, source_index), to = self)
+        else:
+            send(("accept", self.myLevel, self.myFid), to = self.edges[source_index]["process_id"])    
+            
+    def receive(msg = ("accept", Level, Fid, source_index)):
+        self.testEdge = None
+        self.localMOEfound = True
+        if self.edges[source_index]["weight"] < self.bestWeight:
+            self.bestEdge = source_index
+            self.bestWeight = self.edges[source_index]["weight"]
+        Report()
+        
+    def receive(msg = ("reject", Fid, source_index)):
+        if edges[source_index]["status"] == "Basic":
+            edges[source_index]["status"] = "Rejected"
+        Test()
+
+    def receive(msg = ("report", Weight, Count, source_index)):
+        self.reportCount += 1
+        self.sizeCount += Count
+        
+        if Weight < self.bestWeight:
+            self.bestWeight = Weight
+            self.bestEdge = source_index
+        Report()
+    
+    def Report():
+        if self.reportCount == 0 and self.localMOEfound == True:
+            if self.IamRoot == False:
+                self.myState = "FoundUndecided"
+                send(("report", self.bestWeight, self.sizeCount, self.myID), to = self.edges[self.inbranch]["process_id"])
+                
+            else:
+                if math.isInf(self.bestWeight):
+                    self.kill = True
+                if self.sizeCount > SizeThreshold:
+                    self.myPhaseIII = True
+                if self.sizeCount > 2**(self.myLevel + 1):
+                    self.myLevel += 1
+                    Initate()
+                else:
+                    self.myState = "FoundDecided"
+                    self.IamRoot = False
+                    ChangeRoot()
+    
+            
+  
+              
+        
+
+def main():
+    dict = {}
+    weights = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        line = line.strip(' ')
+        list = line.split(' ')
+        x = list[0]
+        list = list[2:]
+        list = [x.split(",") for x in list]
+        dict[n] = [int(x[0]) for x in list]
+        weights[n] = [int(x[1]) for x in list]
+        line = f.readline()
+        n += 1
+    ps = []
+    
+    output(dict)
+    output(weights)
+    
+    for i in range(1, n):
+        p = new(P, method = 'thread')
+        ps.append(p)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), tuple(weights[i+1])))
+        
+    start(ps)
