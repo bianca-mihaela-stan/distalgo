@@ -33,7 +33,7 @@ config(handling = 'one', channel = 'reliable')
    
 
 class P(process):
-    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple, n: int):
         neighbors_indexes = list(neighbors_indexes)
         neighbors_process_ids = list(neighbors_process_ids)
         neighbors_weights = list(neighbors_weights)
@@ -62,6 +62,10 @@ class P(process):
         self.LDlevel = None
         self.minLeaderDistance = None
         self.noRejectionsInThisTesting = None
+        self.N = n
+        self.N_threshold = int(N/math.log(N))
+        
+        output(f"threshold is {self.N_threshold}" )
         
         self.edges = {}
         for i in range(len(neighbors_indexes)):
@@ -83,6 +87,7 @@ class P(process):
         await(self.kill == True)
         
     def WakeUp():
+        output(f"{self.myID} is waking up")
         self.myFid = self.myID
         self.myLevel = 0
         self.myHops = 0
@@ -90,10 +95,10 @@ class P(process):
         self.IamRoot = True
         self.myPhaseIII = False
         
-        Initiate(self.myLevel, self.myFid, self.myStatus, self.myHops)
+        Initiate(self.myLevel, self.myFid, self.myStatus, self.myHops, None)
         
         
-    def Initiate(Level, Fid, Stat, Hops):
+    def Initiate(Level, Fid, Stat, Hops, source_index):
         self.bestEdge = None
         self.bestWeight = math.inf
         self.testEdge = None
@@ -102,50 +107,54 @@ class P(process):
         self.reportCount = 0
         self.sizeCount = 1
        
-        for edge in self.edges.values():
-            edge["active"] = False
-            edge["resendAcceptSub"] = False
-            self.reportCount += 1
-            
-            send(("initiate", Level, Fid, Stat, Hops-1, self.myID), to = edge["process_id"])  
+        for (iterator, edge) in self.edges.items():
+            if iterator != source_index:
+                edge["active"] = False
+                edge["resendAcceptSub"] = False
+                self.reportCount += 1
+                
+                output(f"{self.myID} is sending innitiate to {iterator}")
+                send(("initiate", Level, Fid, Stat, Hops-1, self.myID), to = edge["process_id"])  
             
     def receive(msg = ("initiate", Level, Fid, Stat, Hops, source_index)):
+        output(f"{self.myID} received initiate from {source_index}")
         if Hops == 0 and myPhaseIII == True:
             send(("expInit", Level, self.index), to = self.edges[source_index]["process_id"])
         
         self.inbranch = source_index
         self.myHops = Hops
-        if self.myLevel <= Level:
+        if self.myLevel < Level:
+            output(f"{self.myID} is accepting the merge with {source_index} based on {self.myLevel} <= {Level}")
             self.myLevel = Level
             self.myFid = Fid
             self.myStatus = Stat
-            Initiate(Level, Fid, Stat, Hops)
+            Initiate(Level, Fid, Stat, Hops, source_index)
             
-    def Test():
-        adjacentInStateBasic = False
-        minWeightBasic = math.inf
-        minEdgeBasic = None
-        for (iterator,edge) in self.edges.items():
-            if edge["state"] == "Basic":
-                adjacentInStateBasic = True
-                if edge["weight"] < minWeightBasic:
-                    minWeightBasic = edge["weight"]
-                    minEdgeBasic = iterator
+    # def Test():
+    #     adjacentInStateBasic = False
+    #     minWeightBasic = math.inf
+    #     minEdgeBasic = None
+    #     for (iterator,edge) in self.edges.items():
+    #         if edge["state"] == "Basic":
+    #             adjacentInStateBasic = True
+    #             if edge["weight"] < minWeightBasic:
+    #                 minWeightBasic = edge["weight"]
+    #                 minEdgeBasic = iterator
         
-        if adjacentInStateBasic == False:
-            self.localMOEfound = True
-            Report()
-        elif self.noRejectionsInThisTesting > 2**(self.myLevel + 1):
-            ExpInit(self.myLevel)
-        else:
-            self.testEdge = minEdgeBasic
-            send(("test", self.myLevel, self.myFid, self.myID), to = self.testEdge)
+    #     if adjacentInStateBasic == False:
+    #         self.localMOEfound = True
+    #         Report()
+    #     elif self.noRejectionsInThisTesting > 2**(self.myLevel + 1):
+    #         ExpInit(self.myLevel)
+    #     else:
+    #         self.testEdge = minEdgeBasic
+    #         send(("test", self.myLevel, self.myFid, self.myID), to = self.testEdge)
             
     def receive(msg = ("expInit", L, source_index)):
         ExpInit(L)
         
     def ExpInit(L, source_index):
-        if self.myStatus == "Find" and L >= myLevel and self.myPhaseIII == True:
+        if self.myStatus == "Find" and L >= self.myLevel and self.myPhaseIII == True:
             if self.IamRoot == False:
                 self.myStatus == "FoundNotified"
                 send(("expInit", L), to = self.edges[source_index]["process_id"])
@@ -153,58 +162,99 @@ class P(process):
                 self.myLevel += 1
                 Initiate(2**(self.myLevel + 1), self.myFid, self.myStatus, self.myHops)
             
-    def receive(msg = ("test", Level, Fid, source_index)):
-        if self.myFid == Fid:
-            self.edges[source_index]["status"] = "Rejected"
-            if self.testEdge == source_index:
-                Test()
-            else:
-                send(("reject", self.myFid, self.myID), to = self.edges[source_index]["process_id"])
-        elif Level > self.myLevel:
-            send(("test", Level, Fid, source_index), to = self)
-        else:
-            send(("accept", self.myLevel, self.myFid), to = self.edges[source_index]["process_id"])    
+    # def receive(msg = ("test", Level, Fid, source_index)):
+    #     if self.myFid == Fid:
+    #         self.edges[source_index]["status"] = "Rejected"
+    #         if self.testEdge == source_index:
+    #             Test()
+    #         else:
+    #             send(("reject", self.myFid, self.myID), to = self.edges[source_index]["process_id"])
+    #     elif Level > self.myLevel:
+    #         send(("test", Level, Fid, source_index), to = self)
+    #     else:
+    #         send(("accept", self.myLevel, self.myFid), to = self.edges[source_index]["process_id"])    
             
-    def receive(msg = ("accept", Level, Fid, source_index)):
-        self.testEdge = None
-        self.localMOEfound = True
-        if self.edges[source_index]["weight"] < self.bestWeight:
-            self.bestEdge = source_index
-            self.bestWeight = self.edges[source_index]["weight"]
-        Report()
+    # def receive(msg = ("accept", Level, Fid, source_index)):
+    #     self.testEdge = None
+    #     self.localMOEfound = True
+    #     if self.edges[source_index]["weight"] < self.bestWeight:
+    #         self.bestEdge = source_index
+    #         self.bestWeight = self.edges[source_index]["weight"]
+    #     Report()
         
-    def receive(msg = ("reject", Fid, source_index)):
-        if edges[source_index]["status"] == "Basic":
-            edges[source_index]["status"] = "Rejected"
-        Test()
+    # def receive(msg = ("reject", Fid, source_index)):
+    #     if edges[source_index]["status"] == "Basic":
+    #         edges[source_index]["status"] = "Rejected"
+    #     Test()
 
-    def receive(msg = ("report", Weight, Count, source_index)):
-        self.reportCount += 1
-        self.sizeCount += Count
+    # def receive(msg = ("report", Weight, Count, source_index)):
+    #     self.reportCount += 1
+    #     self.sizeCount += Count
         
-        if Weight < self.bestWeight:
-            self.bestWeight = Weight
-            self.bestEdge = source_index
-        Report()
+    #     if Weight < self.bestWeight:
+    #         self.bestWeight = Weight
+    #         self.bestEdge = source_index
+    #     Report()
     
-    def Report():
-        if self.reportCount == 0 and self.localMOEfound == True:
-            if self.IamRoot == False:
-                self.myState = "FoundUndecided"
-                send(("report", self.bestWeight, self.sizeCount, self.myID), to = self.edges[self.inbranch]["process_id"])
+    # def Report():
+    #     if self.reportCount == 0 and self.localMOEfound == True:
+    #         if self.IamRoot == False:
+    #             # An ordinary node has state FoundUndecided after completing the Reporting procedure.
+    #             # I will delay my response to all incoming connect messages, unless the fragment that wants to merge
+    #             # is strictly lower level.
                 
-            else:
-                if math.isInf(self.bestWeight):
-                    self.kill = True
-                if self.sizeCount > SizeThreshold:
-                    self.myPhaseIII = True
-                if self.sizeCount > 2**(self.myLevel + 1):
-                    self.myLevel += 1
-                    Initate()
-                else:
-                    self.myState = "FoundDecided"
-                    self.IamRoot = False
-                    ChangeRoot()
+    #             self.myState = "FoundUndecided"
+    #             send(("report", self.bestWeight, self.sizeCount, self.myID), to = self.edges[self.inbranch]["process_id"])
+                
+    #         else:
+    #             if math.isInf(self.bestWeight):
+    #                 self.kill = True
+    #             if self.sizeCount > self.N_threshold:
+    #                 self.myPhaseIII = True
+    #             if self.sizeCount > 2**(self.myLevel + 1):
+    #                 self.myLevel += 1
+    #                 Initate()
+    #             else:
+    #                 self.myState = "FoundDecided"
+    #                 self.IamRoot = False
+    #                 ChangeRoot()
+                    
+                    
+    # def ChangeRoot():
+    #     for (iterator,edge) in self.edges.items():
+    #         if iterator != self.bestEdge:
+    #             send(("MOEfound"), to = edge["process_id"])
+        
+    #     # After receivng a changeRoot or MOEfound message, I advance to the FoundNotified state.
+    #     # A FoundNotified state responds immediately to any incomming connect messages with the same level.
+    #     self.myState = "FoundNotified"
+    #     ResendAcceptSub()
+        
+    #     if self.edges[self.bestEdge]["state"] == "Branch":
+    #         # Forward changeroot to leader.
+    #         send(("changeRoot", self.myPhaseIII, self.myID), to = self.edges[self.bestEdge]["process_id"])
+    #         # orient tree towards the leader
+    #         self.inbranch = self.bestEdge
+            
+    #     else:
+    #         # I am the leader, my best branch is the MOE.
+    #         self.IamLeader = True
+    #         send(("Connect", self.myLevel, self.myFid, self.myID), to = self.edges[self.bestEdge]["process_id"])
+            
+    #         self.edges[self.bestEdge]["status"] = "Branch"
+            
+    # def ResendAcceptSub():
+    #     # Send acceptSub(FoundNotified) tp those nodes that I sent acceptSub(FoundUndecided).
+        
+    #     for edge in self.edges.values():
+    #         if edge["resendAcceptSub"] == True:
+    #             send(acceptSub(self.myLevel, self.myFid, self.myState, self.myID), to = edge["process_id"])
+    #             edge["resendAcceptSub"] = False
+                
+    # def receive(msg = ("changeRoot", PhaseIII, source_index)):
+    #     self.myPhaseIII = PhaseIII
+    #     ChangeRoot()
+
     
             
   
@@ -241,6 +291,6 @@ def main():
         ps_ids = []
         for x in dict[i + 1]:
             ps_ids.append(ps[(x - 1)])
-        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), tuple(weights[i+1])))
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), tuple(weights[i+1]), n))
         
     start(ps)
