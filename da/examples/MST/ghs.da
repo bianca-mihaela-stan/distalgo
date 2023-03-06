@@ -80,7 +80,7 @@ class P(process):
         if self.index == 1:
             wakeup()
         
-        await()
+        await(self.kill == True)
         
     def wakeup():
         output(f"{self.index}: is waking up")
@@ -125,13 +125,13 @@ class P(process):
             if self.SN == "Find":
                 self.find_count += 1
                 self.max_find_count = max(self.find_count, self.max_find_count)
-        elif L >= self.LN and self.branches[source_index][2] == "Basic":
+        elif self.branches[source_index][2] == "Basic":
             # An equal or bigger fragment wants to connect to me.
             
             # I will deal with this later when my level goes up.
             output(f"{self.index} will deal with Connect from {source_index} later")
             send(("Connect", L, source_index), to = self)
-        elif L == self.LN and self.branches[source_index][2] == "Branch":
+        else:
             # An equal fragment wants to join with me.
             
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
@@ -238,19 +238,23 @@ class P(process):
                 
                 # If the branch I sent a test message on is the same, I continue looking for the MWOE without sending the message.
                 test()
+                self.test_await -= 1
                 
                 
     def receive(msg = ("Accept", source_index)):
+        old_best_wt = self.best_wt
         # I found the MWOE for me.
         self.test_edge = None
         self.test_await -= 1
         if self.branches[source_index][1] < self.best_wt:
             self.best_edge = source_index
             self.best_wt = self.branches[source_index][1]
+            
+        output(f"{self.index} receives Accept from {source_index} and best edge becomes {self.branches[source_index][1]} rather than the old {old_best_wt}")
         report()
             
     def receive(msg = ("Reject", source_index)):
-        output(f"{self.index} is receives a Reject from {source_index} but they had {self.branches[source_index][2]} ")
+        output(f"{self.index} receives a Reject from {source_index} but they had {self.branches[source_index][2]} ")
         # If I get rejected I mark the branch and continue testing.
         if self.branches[source_index][2] == "Basic":
             self.branches[source_index][2] = "Rejected"
@@ -265,7 +269,7 @@ class P(process):
             send(("Report", self.best_wt, self.index), to = self.branches[in_branch][0])
             
     def receive(msg = ("Report", w, source_index)):
-        output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN}")
+        output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN} and test_await is {self.test_await}")
         # Someone reported up to me.
         
         if source_index != self.in_branch:
@@ -277,16 +281,21 @@ class P(process):
             report()
         elif self.in_branch == source_index:
             # I've received a message over the core edge.
-            if self.SN == "Find" and self.find_count > 0:
+            if self.test_await != 0 or self.SN == "Find" and self.find_count > 0 :
                 # If I'm still looking for my personal MWOE so I can't talk over the core edge.
                 send(("Report", w, source_index), to = self)
             elif w > best_wt:
                 # If my best edge is better, I'm going to change the root on my side.
                 change_root()
             elif math.isinf(best_wt) and math.isinf(w):
-                output(f"{self.index} await")
-                await()
-            
+                if self.test_await == 0:
+                    output(f"KILLING {self.index}")
+                
+                    for (iterator, branch) in list(self.branches.items()):
+                        if branch[2] == "Branch":
+                            send(("Kill", source_index), to = branch[0])
+                            output(f"KILLING {iterator}")
+                    self.kill = True
     
     def change_root():
         # Remake the path to the best_edge by sending "Change root" throught the path.
@@ -295,7 +304,7 @@ class P(process):
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
-            send(("Connect - change root", self.LN, self.index), to = self.branches[best_edge][0])
+            send(("Connect", self.LN, self.index), to = self.branches[best_edge][0])
             self.branches[best_edge][2] = "Branch"
             log_results.write(f"{self.index} {best_edge}\n")
 
@@ -303,25 +312,28 @@ class P(process):
         change_root()        
         
         
-    def receive(msg = ("Connect - change root", L, source_index)):
-        self.branches[source_index][2] = "Branch"
-        log_results.write(f"{self.index} {source_index}\n")
+    # def receive(msg = ("Connect - change root", L, source_index)):
+    #     self.branches[source_index][2] = "Branch"
+    #     log_results.write(f"{self.index} {source_index}\n")
         
-        # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
-        output(f"{self.index} receives Connect - change root from {source_index}")
-        send(("Initiate", self.LN + 1, self.FN, self.SN, self.index), to = self.branches[source_index][0])
+    #     # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
+    #     output(f"{self.index} receives Connect - change root from {source_index}")
+    #     send(("Initiate", self.LN + 1, self.FN, self.SN, self.index), to = self.branches[source_index][0])
         
-        # If I'm still looking for the MWOE I need to wait for a response from one more node.
-        if self.SN == "Find":
-            self.find_count += 1
-            self.max_find_count = max(self.find_count, self.max_find_count)
+    #     # If I'm still looking for the MWOE I need to wait for a response from one more node.
+    #     if self.SN == "Find":
+    #         self.find_count += 1
+    #         self.max_find_count = max(self.find_count, self.max_find_count)
         
-    # def receive(msg = ("Kill", source_index)):
-    #     for (iterator, branch) in list(self.branches.items()):
-    #         if branch[2] == "Branch":
-    #             send(("Kill", source_index), to = branch[0])
-    #             output(f"KILLING {iterator}")
-    #     self.kill = True
+    def receive(msg = ("Kill", source_index)):
+        if self.find_count == 0 and self.test_await == 0:
+            for (iterator, branch) in list(self.branches.items()):
+                if branch[2] == "Branch":
+                    send(("Kill", source_index), to = branch[0])
+                    output(f"KILLING {iterator}")
+            self.kill = True
+        else:
+            output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
                     
               
         
