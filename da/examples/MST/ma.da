@@ -44,220 +44,315 @@ class P(process):
         - Find: while participating in the fragment's search for the minimum-weight outgoing edge
         - Found: rest of the time?
         """
-        self.myID = index
-        self.myLevel = 0
-        self.myStatus = None
-        self.Fid = self.myID
-        self.inbranch = None
-        self.myHops = None
-        self.bestEdge = None
-        self.bestWeight = None
-        self.testEdge = None
-        self.IamRoot = None
-        self.IamLeader = None
-        self.localMOEfound = None
-        self.myPhaseIII = None
-        self.reportCount = None
-        self.sizeCount = None
-        self.LDlevel = None
-        self.minLeaderDistance = None
-        self.noRejectionsInThisTesting = None
-        self.N = n
-        self.N_threshold = int(N/math.log(N))
+        # SN = state of a node
+        self.SN = "Sleeping"
+        # FN = fragment node identity
+        # this is supposed to be a weight but since at level 0 we have no edges it's the index
+        self.FN = -index
+        self.index = index
+        # LN = level of node
+        self.LN = 0
+        # best_edge = best outgoing edge for each node
+        self.best_edge = None
+        # best_wt = best outgoing weight for each node
+        self.best_wt = math.inf
         
-        output(f"threshold is {self.N_threshold}" )
-        
-        self.edges = {}
+        self.test_edge = None
+        # in_branch = branch to the leader edge of the fragment
+        self.in_branch = None
+        self.find_count = None
+        self.max_find_count = 0
+        self.test_await = 0
+        # number_id : [id, weight, edge state]
+        # SE(j) is the state of an edge
+        self.branches = {}
         for i in range(len(neighbors_indexes)):
             x = neighbors_indexes[i]
-            self.edges[x] = dict()
-            self.edges[x]["process_id"] = neighbors_process_ids[i]
-            self.edges[x]["weight"] = neighbors_weights[i]
-            self.edges[x]["state"] = "Basic"
+            self.branches[x] = [neighbors_process_ids[i], neighbors_weights[i], "Basic"]
             
-        output(f"{self.index} {self.edges}")
+        output(f"{self.index} {self.branches}")
         self.kill = False
+        self.n = n
+        self.N_threshold = n / math.log(n)
+        
+        self.i_am_root = None
+        self.co_root = None
+        self.root = None
+        
+        self.size_count = None
+        self.phaseIII = False
             
         
         
     def run():
         if self.index == 1:
-            WakeUp()
+            wakeup()
         
         await(self.kill == True)
         
-    def WakeUp():
-        output(f"{self.myID} is waking up")
-        self.myFid = self.myID
-        self.myLevel = 0
-        self.myHops = 0
-        self.myStatus = "Find"
-        self.IamRoot = True
-        self.myPhaseIII = False
+    def wakeup():
+        output(f"{self.index}: is waking up")
+        # Chooses its minimum weight adjacent edge
+        min_node = None
+        min_weight = None
+        for (node, (_, weight, _)) in self.branches.items():
+            if min_weight == None or weight < min_weight:
+                min_node = node
+                min_weight = weight
+             
+        # Marks this branch as part of the MST.
+        self.branches[min_node][2] = "Branch"   
+        log_results.write(f"{self.index} {min_node}\n")
+        self.LN = 0
+        self.SN = "Found"
+        self.find_count = 0
         
-        Initiate(self.myLevel, self.myFid, self.myStatus, self.myHops, None)
+        # Sends a Connect message over this edge.
+        output(f"{self.index} is sending a Connect to {min_node}")
+        send(("Connect", self.LN, self.index), to = self.branches[min_node][0])
+        # Waits for a response from the fragment at the other end.
+        # output(f"{self.index} : sent connect")
         
+    def receive(msg = ("Connect", L, source_index)):
+        output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index][2]} and itself has {self.LN} and {self.FN}")
+        if self.SN == "Sleeping":
+            wakeup()
+            
+        if L < self.LN:
+            # A node with a lower level wants to connect to me. I will respond immediately and he will be absorbed into me.
+            
+            # The branch connecting me to that fragment is now part of the MST.
+            self.branches[source_index][2] = "Branch"
+            log_results.write(f"{self.index} {source_index}\n")
+            
+            # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
+            output(f"{self.index} sends Initiate to {source_index}")
+            send(("Initiate", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index][0])
+            
+            # If I'm still looking for the MWOE I need to wait for a response from one more node.
+            if self.SN == "Find":
+                self.find_count += 1
+                self.max_find_count = max(self.find_count, self.max_find_count)
+        elif self.branches[source_index][2] == "Basic":
+            # An equal or bigger fragment wants to connect to me.
+            
+            # I will deal with this later when my level goes up.
+            output(f"{self.index} will deal with Connect from {source_index} later")
+            send(("Connect", L, source_index), to = self)
+        else:
+            # An equal fragment wants to join with me.
+            
+            # Both our levels  will become bigger and our fragment identity will be the edge between us.
+            # Also we start out in a state Find.
+            output(f"{self.index} sends Initiate to {source_index}")
+            send(("Initiate", self.LN + 1, self.branches[source_index][1], "Find", self.index), to = self.branches[source_index][0])
         
-    def Initiate(Level, Fid, Stat, Hops, source_index):
-        self.bestEdge = None
-        self.bestWeight = math.inf
-        self.testEdge = None
-        self.localMOEfound = False
-        self.IamLeader = False
-        self.reportCount = 0
-        self.sizeCount = 1
-       
-        for (iterator, edge) in self.edges.items():
-            if iterator != source_index:
-                edge["active"] = False
-                edge["resendAcceptSub"] = False
-                self.reportCount += 1
+    def receive(msg = ("Initiate", L, F, S, source_index)):
+        output(f"{self.index} receives Initiate from {source_index}")
+        # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
+        self.LN = L
+        self.FN = F
+        self.SN = S 
+        # The in branch is the one through which you receive the frament
+        self.in_branch = source_index
+        self.best_edge = None 
+        self.best_wt = math.inf
+        self.size_count = 1
+        
+        # Continuing to propagate the new fragment id.
+        output(f"{self.index} {self.branches}")
+        for (iterator, branch) in list(self.branches.items()):
+            output(f"{self.index} iterating through {iterator} {branch}")
+            if iterator != source_index and branch[2] == "Branch":
+                send(("Initiate", L, F, S, self.index), to = branch[0])
+            
+                # Counting all the nodes I need to hear from to calculate my MWOE.
+                if S == "Find":
+                    self.find_count += 1
+                    self.max_find_count = max(self.find_count, self.max_find_count)
                 
-                output(f"{self.myID} is sending innitiate to {iterator}")
-                send(("initiate", Level, Fid, Stat, Hops-1, self.myID), to = edge["process_id"])  
+        # Starting to look for the MWOE.
+        if S == "Find":
+            test()
             
-    def receive(msg = ("initiate", Level, Fid, Stat, Hops, source_index)):
-        output(f"{self.myID} received initiate from {source_index}")
-        if Hops == 0 and myPhaseIII == True:
-            send(("expInit", Level, self.index), to = self.edges[source_index]["process_id"])
+    def test():
+        output(f"{self.index} is testing")
+        # Looking for the MWOE.
         
-        self.inbranch = source_index
-        self.myHops = Hops
-        if self.myLevel < Level:
-            output(f"{self.myID} is accepting the merge with {source_index} based on {self.myLevel} <= {Level}")
-            self.myLevel = Level
-            self.myFid = Fid
-            self.myStatus = Stat
-            Initiate(Level, Fid, Stat, Hops, source_index)
+        self.test_edge = None
+        min_weight = None
+        # Figure out if there are adjacent edges in the state Basic.
+        basic_adjacent = False
+        for branch in list(self.branches.values()):
+            if branch[2] == "Basic":
+                basic_adjacent = True
+                break
+        
+        output(f"{self.index} has basic branches adjacent: {basic_adjacent}")
+        if basic_adjacent == True:
             
-    # def Test():
-    #     adjacentInStateBasic = False
-    #     minWeightBasic = math.inf
-    #     minEdgeBasic = None
-    #     for (iterator,edge) in self.edges.items():
-    #         if edge["state"] == "Basic":
-    #             adjacentInStateBasic = True
-    #             if edge["weight"] < minWeightBasic:
-    #                 minWeightBasic = edge["weight"]
-    #                 minEdgeBasic = iterator
-        
-    #     if adjacentInStateBasic == False:
-    #         self.localMOEfound = True
-    #         Report()
-    #     elif self.noRejectionsInThisTesting > 2**(self.myLevel + 1):
-    #         ExpInit(self.myLevel)
-    #     else:
-    #         self.testEdge = minEdgeBasic
-    #         send(("test", self.myLevel, self.myFid, self.myID), to = self.testEdge)
+            for (iterator,branch) in list(self.branches.items()):
+                # Make test_edge = minimum weight outgoing edge in state Basic.
+                if branch[2] == "Basic":
+                    if min_weight == None or min_weight > branch[1]:
+                        min_weight = branch[1]
+                        self.test_edge = iterator
+              
+            # Send test on test_edge.
+            output(f"{self.index} is sending a Test to {self.test_edge}")       
+            send(("Test", self.LN, self.FN, self.index), to = self.branches[self.test_edge][0])
+            self.test_await += 1
+            # await(some(received(('Accept', self.test_edge))) or some(received(("Reject", self.test_edge))))
+        else:
+            # There are no adjacent edges in state Basic, so report up.
+            self.test_edge = None
+            report()
             
-    def receive(msg = ("expInit", L, source_index)):
-        ExpInit(L)
+    def receive(msg = ("Test", L, F, source_index),):
+        if self.SN == "Sleeping":
+            wakeup()
+            
+        output(f"{self.index} received Test from {source_index} with {L} {F} and he has {self.LN} {self.FN}")
         
-    def ExpInit(L, source_index):
-        if self.myStatus == "Find" and L >= self.myLevel and self.myPhaseIII == True:
-            if self.IamRoot == False:
-                self.myStatus == "FoundNotified"
-                send(("expInit", L), to = self.edges[source_index]["process_id"])
+            
+        if L > self.LN and F != self.FN:
+            # A higher level fragment wants to test me. I'll wait until my level is higher.
+            
+            # !!! place received message at the end of the queue
+            output(f"{self.index} I received a test and I'm sending it back to myself and that's why {self}")
+            send(("Test", L, F, source_index), to = self)
+
+        elif L <= self.LN and F != self.FN:
+            # A lower level different fragment wants to test me.
+            # I will accept.
+            output(f"{self.index} I Accept the test from {source_index}")
+            send(("Accept", self.index), to = self.branches[source_index][0])
+        elif F == self.FN:
+            # Someone in the same fragment wants to test me.
+            
+            output(f"{self.index} I Reject the test from {source_index} {self.branches[source_index][2]}")
+            
+            
+            # If the branch is not already maked as rejected, I mark it.
+            if self.branches[source_index][2] == "Basic":
+                
+                # I always mark the edge as rejected, but not always send the rejection message.
+                self.branches[source_index][2] = "Rejected"
+                
+            if self.test_edge != source_index:
+                
+                # If the branch I sent a test message on is not the same as this one, I do send a reject message.
+                send(("Reject", self.index), to = self.branches[source_index][0])
             else:
-                self.myLevel += 1
-                Initiate(2**(self.myLevel + 1), self.myFid, self.myStatus, self.myHops)
-            
-    # def receive(msg = ("test", Level, Fid, source_index)):
-    #     if self.myFid == Fid:
-    #         self.edges[source_index]["status"] = "Rejected"
-    #         if self.testEdge == source_index:
-    #             Test()
-    #         else:
-    #             send(("reject", self.myFid, self.myID), to = self.edges[source_index]["process_id"])
-    #     elif Level > self.myLevel:
-    #         send(("test", Level, Fid, source_index), to = self)
-    #     else:
-    #         send(("accept", self.myLevel, self.myFid), to = self.edges[source_index]["process_id"])    
-            
-    # def receive(msg = ("accept", Level, Fid, source_index)):
-    #     self.testEdge = None
-    #     self.localMOEfound = True
-    #     if self.edges[source_index]["weight"] < self.bestWeight:
-    #         self.bestEdge = source_index
-    #         self.bestWeight = self.edges[source_index]["weight"]
-    #     Report()
-        
-    # def receive(msg = ("reject", Fid, source_index)):
-    #     if edges[source_index]["status"] == "Basic":
-    #         edges[source_index]["status"] = "Rejected"
-    #     Test()
-
-    # def receive(msg = ("report", Weight, Count, source_index)):
-    #     self.reportCount += 1
-    #     self.sizeCount += Count
-        
-    #     if Weight < self.bestWeight:
-    #         self.bestWeight = Weight
-    #         self.bestEdge = source_index
-    #     Report()
-    
-    # def Report():
-    #     if self.reportCount == 0 and self.localMOEfound == True:
-    #         if self.IamRoot == False:
-    #             # An ordinary node has state FoundUndecided after completing the Reporting procedure.
-    #             # I will delay my response to all incoming connect messages, unless the fragment that wants to merge
-    #             # is strictly lower level.
+                self.test_await -= 1
+                # If the branch I sent a test message on is the same, I continue looking for the MWOE without sending the message.
+                test()
                 
-    #             self.myState = "FoundUndecided"
-    #             send(("report", self.bestWeight, self.sizeCount, self.myID), to = self.edges[self.inbranch]["process_id"])
                 
-    #         else:
-    #             if math.isInf(self.bestWeight):
-    #                 self.kill = True
-    #             if self.sizeCount > self.N_threshold:
-    #                 self.myPhaseIII = True
-    #             if self.sizeCount > 2**(self.myLevel + 1):
-    #                 self.myLevel += 1
-    #                 Initate()
-    #             else:
-    #                 self.myState = "FoundDecided"
-    #                 self.IamRoot = False
-    #                 ChangeRoot()
+    def receive(msg = ("Accept", source_index)):
+        old_best_wt = self.best_wt
+        # I found the MWOE for me.
+        self.test_edge = None
+        self.test_await -= 1
+        if self.branches[source_index][1] < self.best_wt:
+            self.best_edge = source_index
+            self.best_wt = self.branches[source_index][1]
+            
+        output(f"{self.index} receives Accept from {source_index} and best edge becomes {self.branches[source_index][1]} rather than the old {old_best_wt}")
+        report()
+            
+    def receive(msg = ("Reject", source_index)):
+        output(f"{self.index} receives a Reject from {source_index} but they had {self.branches[source_index][2]} ")
+        # If I get rejected I mark the branch and continue testing.
+        if self.branches[source_index][2] == "Basic":
+            self.branches[source_index][2] = "Rejected"
+        self.test_await -= 1
+        test()
+            
+    def report():
+        # If I am a leaf and I don't have any more edges to test, I mark myself as Found and report up.
+        if self.test_await != 0:
+            output(f"{self.index} cannot report because of test await {self.test_await}")
+        if self.find_count == 0 and self.test_edge == None and self.test_await == 0:
+            output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
+            self.SN = "Found"
+            send(("Report", self.best_wt, self.size_count, self.index), to = self.branches[in_branch][0])
+            
+    def receive(msg = ("Report", w, count,  source_index)):
+        output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN} and test_await is {self.test_await}")
+        # Someone reported up to me.
+        
+        if source_index != self.in_branch:
+            # I have to wait for one less report.
+            self.find_count -= 1
+            self.size_count  += count
+            if w < self.best_wt:
+                self.best_wt = w
+                self.best_edge = source_index
+            report()
+        elif self.in_branch == source_index:
+            if self.index > self.in_branch:
+                self.i_am_root = True
+                self.co_root = in_branch
+            else:
+                self.i_am_root = False
+                self.root = in_branch
+            # I've received a message over the core edge.
+            if self.test_await != 0 or self.SN == "Find" and self.find_count > 0 :
+                # If I'm still looking for my personal MWOE so I can't talk over the core edge.
+                send(("Report", w, count, source_index), to = self)
+            else:
+                self.size_count += count   
+                output(f"{self.index} HAS A SIZE COUNT OF {self.size_count}")
+                if self.size_count >= self.N_threshold:
+                    output("PHASE III IS ACTIVATED")
+                    self.phaseIII = True
                     
-                    
-    # def ChangeRoot():
-    #     for (iterator,edge) in self.edges.items():
-    #         if iterator != self.bestEdge:
-    #             send(("MOEfound"), to = edge["process_id"])
-        
-    #     # After receivng a changeRoot or MOEfound message, I advance to the FoundNotified state.
-    #     # A FoundNotified state responds immediately to any incomming connect messages with the same level.
-    #     self.myState = "FoundNotified"
-    #     ResendAcceptSub()
-        
-    #     if self.edges[self.bestEdge]["state"] == "Branch":
-    #         # Forward changeroot to leader.
-    #         send(("changeRoot", self.myPhaseIII, self.myID), to = self.edges[self.bestEdge]["process_id"])
-    #         # orient tree towards the leader
-    #         self.inbranch = self.bestEdge
-            
-    #     else:
-    #         # I am the leader, my best branch is the MOE.
-    #         self.IamLeader = True
-    #         send(("Connect", self.myLevel, self.myFid, self.myID), to = self.edges[self.bestEdge]["process_id"])
-            
-    #         self.edges[self.bestEdge]["status"] = "Branch"
-            
-    # def ResendAcceptSub():
-    #     # Send acceptSub(FoundNotified) tp those nodes that I sent acceptSub(FoundUndecided).
-        
-    #     for edge in self.edges.values():
-    #         if edge["resendAcceptSub"] == True:
-    #             send(acceptSub(self.myLevel, self.myFid, self.myState, self.myID), to = edge["process_id"])
-    #             edge["resendAcceptSub"] = False
                 
-    # def receive(msg = ("changeRoot", PhaseIII, source_index)):
-    #     self.myPhaseIII = PhaseIII
-    #     ChangeRoot()
-
+                if w > best_wt:
+                    # If my best edge is better, I'm going to change the root on my side.
+                    change_root()
+                elif math.isinf(best_wt) and math.isinf(w):
+                    if self.test_await == 0:
+                        output(f"KILLING {self.index}")
+                    
+                        for (iterator, branch) in list(self.branches.items()):
+                            if branch[2] == "Branch":
+                                send(("Kill", source_index), to = branch[0])
+                                output(f"KILLING {iterator}")
+                        self.kill = True
     
-            
-  
+    def change_root():
+        # Remake the path to the best_edge by sending "Change root" throught the path.
+        if self.branches[best_edge][2] == "Branch":
+            send(("Change root", self.index), to = self.branches[best_edge][0])
+        else:
+            output(f"{self.index} sends connect - change root to {best_edge}")
+            # Once you get to the best edge, send a connect message to the other fragment.
+            send(("Connect", self.LN, self.index), to = self.branches[best_edge][0])
+            self.branches[best_edge][2] = "Branch"
+            log_results.write(f"{self.index} {best_edge}\n")
+            if self.index > self.best_edge:
+                self.i_am_root = True
+                self.co_root = self.best_edge
+            else:
+                self.i_am_root = False
+                self.root = self.best_edge
+
+    def receive(msg = ("Change root", source_index)):
+        change_root()        
+        
+        
+    def receive(msg = ("Kill", source_index)):
+        if self.find_count == 0 and self.test_await == 0:
+            for (iterator, branch) in list(self.branches.items()):
+                if branch[2] == "Branch":
+                    send(("Kill", source_index), to = branch[0])
+                    output(f"KILLING {iterator}")
+            self.kill = True
+        else:
+            output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
+                    
               
         
 
