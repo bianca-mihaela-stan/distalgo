@@ -48,7 +48,7 @@ class P(process):
         self.SN = "Sleeping"
         # FN = fragment node identity
         # this is supposed to be a weight but since at level 0 we have no edges it's the index
-        self.FN = -index
+        self.FN = index
         self.index = index
         # LN = level of node
         self.LN = 0
@@ -73,7 +73,7 @@ class P(process):
         output(f"{self.index} {self.branches}")
         self.kill = False
         self.n = n
-            
+        self.have_root_as_neighbor = False
         
         
     def run():
@@ -101,11 +101,11 @@ class P(process):
         
         # Sends a Connect message over this edge.
         output(f"{self.index} is sending a Connect to {min_node}")
-        send(("Connect", self.LN, self.index), to = self.branches[min_node][0])
+        send(("Connect", self.LN, self.FN, self.index), to = self.branches[min_node][0])
         # Waits for a response from the fragment at the other end.
         # output(f"{self.index} : sent connect")
         
-    def receive(msg = ("Connect", L, source_index)):
+    def receive(msg = ("Connect", L, F, source_index)):
         output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index][2]} and itself has {self.LN} and {self.FN}")
         if self.SN == "Sleeping":
             wakeup()
@@ -130,14 +130,14 @@ class P(process):
             
             # I will deal with this later when my level goes up.
             output(f"{self.index} will deal with Connect from {source_index} later")
-            send(("Connect", L, source_index), to = self)
+            send(("Connect", L, F, source_index), to = self)
         else:
             # An equal fragment wants to join with me.
             
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
             # Also we start out in a state Find.
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN + 1, self.branches[source_index][1], "Find", self.index), to = self.branches[source_index][0])
+            send(("Initiate", self.LN + 1, max(F, self.FN), "Find", self.index), to = self.branches[source_index][0])
         
     def receive(msg = ("Initiate", L, F, S, source_index)):
         output(f"{self.index} receives Initiate from {source_index}")
@@ -146,7 +146,13 @@ class P(process):
         self.FN = F
         self.SN = S 
         # The in branch is the one through which you receive the frament
-        self.in_branch = source_index
+        
+        if self.index == self.FN:
+            self.in_branch = None
+        elif F == source_index:
+            self.have_root_as_neighbor = True
+        else:
+            self.in_branch = source_index
         self.best_edge = None 
         self.best_wt = math.inf
         
@@ -235,10 +241,9 @@ class P(process):
                 # If the branch I sent a test message on is not the same as this one, I do send a reject message.
                 send(("Reject", self.index), to = self.branches[source_index][0])
             else:
-                
+                self.test_await -= 1
                 # If the branch I sent a test message on is the same, I continue looking for the MWOE without sending the message.
                 test()
-                self.test_await -= 1
                 
                 
     def receive(msg = ("Accept", source_index)):
@@ -263,39 +268,64 @@ class P(process):
             
     def report():
         # If I am a leaf and I don't have any more edges to test, I mark myself as Found and report up.
-        if self.find_count == 0 and self.test_edge == None:
-            output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
-            self.SN = "Found"
-            send(("Report", self.best_wt, self.index), to = self.branches[in_branch][0])
+        if self.test_await != 0:
+            output(f"{self.index} cannot report because of test await {self.test_await}")
+        if (self.find_count == 0  or self.find_count == 1 and self.have_root_as_neighbor) and self.test_edge == None and self.test_await == 0 :
+            if self.FN != self.index:
+                output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
+                self.SN = "Found Undecided"
+                send(("Report", self.best_wt, self.index), to = self.branches[in_branch][0])
+            elif math.isinf(self.best_wt) and self.test_await == 0:
+                output(f"KILLING {self.index}")
+        
+                for (iterator, branch) in list(self.branches.items()):
+                    if branch[2] == "Branch":
+                        send(("Kill", self.index), to = branch[0])
+                        output(f"KILLING {iterator}")
+                self.kill = True
+                
+            else:
+                self.SN = "Found Decided"
+                change_root()
+
             
     def receive(msg = ("Report", w, source_index)):
         output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN} and test_await is {self.test_await}")
         # Someone reported up to me.
         
-        if source_index != self.in_branch:
-            # I have to wait for one less report.
+        if self.find_count == 0 and self.test_edge == None and self.test_await == 0:
             self.find_count -= 1
             if w < self.best_wt:
                 self.best_wt = w
                 self.best_edge = source_index
             report()
-        elif self.in_branch == source_index:
-            # I've received a message over the core edge.
-            if self.test_await != 0 or self.SN == "Find" and self.find_count > 0 :
-                # If I'm still looking for my personal MWOE so I can't talk over the core edge.
-                send(("Report", w, source_index), to = self)
-            elif w > best_wt:
-                # If my best edge is better, I'm going to change the root on my side.
-                change_root()
-            elif math.isinf(best_wt) and math.isinf(w):
-                if self.test_await == 0:
-                    output(f"KILLING {self.index}")
+        else:
+            send(("Report", w, source_index), to = self)
+        
+        # if source_index != self.in_branch:
+        #     # I have to wait for one less report.
+        #     self.find_count -= 1
+        #     if w < self.best_wt:
+        #         self.best_wt = w
+        #         self.best_edge = source_index
+        #     report()
+        # elif self.in_branch == source_index:
+        #     # I've received a message over the core edge.
+        #     if self.test_await != 0 or self.SN == "Find" and self.find_count > 0 :
+        #         # If I'm still looking for my personal MWOE so I can't talk over the core edge.
+        #         send(("Report", w, source_index), to = self)
+        #     elif w > best_wt:
+        #         # If my best edge is better, I'm going to change the root on my side.
+        #         change_root()
+        #     elif math.isinf(best_wt) and math.isinf(w):
+        #         if self.test_await == 0:
+        #             output(f"KILLING {self.index}")
                 
-                    for (iterator, branch) in list(self.branches.items()):
-                        if branch[2] == "Branch":
-                            send(("Kill", source_index), to = branch[0])
-                            output(f"KILLING {iterator}")
-                    self.kill = True
+        #             for (iterator, branch) in list(self.branches.items()):
+        #                 if branch[2] == "Branch":
+        #                     send(("Kill", source_index), to = branch[0])
+        #                     output(f"KILLING {iterator}")
+        #             self.kill = True
     
     def change_root():
         # Remake the path to the best_edge by sending "Change root" throught the path.
@@ -304,7 +334,7 @@ class P(process):
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
-            send(("Connect", self.LN, self.index), to = self.branches[best_edge][0])
+            send(("Connect", self.LN, self.FN, self.index), to = self.branches[best_edge][0])
             self.branches[best_edge][2] = "Branch"
             log_results.write(f"{self.index} {best_edge}\n")
 
@@ -326,14 +356,16 @@ class P(process):
     #         self.max_find_count = max(self.find_count, self.max_find_count)
         
     def receive(msg = ("Kill", source_index)):
-        if self.find_count == 0 and self.test_await == 0:
+        output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
+        if self.find_count == 0 and self.test_await == 0 and self.best_edge == None:
             for (iterator, branch) in list(self.branches.items()):
                 if branch[2] == "Branch":
                     send(("Kill", source_index), to = branch[0])
-                    output(f"KILLING {iterator}")
+            output(f"KILLING {self.index}")
             self.kill = True
         else:
             output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
+            send(("Kill", source_index), to = self)
                     
               
         
