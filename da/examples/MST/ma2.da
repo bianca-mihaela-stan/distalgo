@@ -1,0 +1,184 @@
+import da
+import sys
+import random
+import os
+import copy
+import time
+import sys
+import math
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/total_time_results/ghs'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/node_time_results/ghs/{nr_nodes}/graph{which_graph}'
+mst_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MST/mst_results/ghs/{nr_nodes}/graph{which_graph}/run{which_run}'
+
+total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
+
+
+if not os.path.exists(total_time_results_dir):
+    os.makedirs(total_time_results_dir)
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+
+total_time_results = open(total_time_results_path, "a")
+node_time_results = open(node_time_results_path, "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MST/graphs/{nr_nodes}/graph{which_graph}.txt")
+log_results = open(mst_results_dir, "w")
+config(handling = 'one', channel = 'reliable')
+   
+
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, neighbors_weights: tuple, n: int):
+        neighbors_indexes = list(neighbors_indexes)
+        neighbors_process_ids = list(neighbors_process_ids)
+        neighbors_weights = list(neighbors_weights)
+        
+        """
+        There are 3 possible states: 
+        - Sleeping: initial state
+        - Find: while participating in the fragment's search for the minimum-weight outgoing edge
+        - Found: rest of the time?
+        """
+        # SN = state of a node
+        self.SN = "Sleeping"
+        # FN = fragment node identity
+        # this is supposed to be a weight but since at level 0 we have no edges it's the index
+        self.FN = -index
+        self.index = index
+        # LN = level of node
+        self.LN = 0
+        # best_edge = best outgoing edge for each node
+        self.best_edge = None
+        # best_wt = best outgoing weight for each node
+        self.best_wt = math.inf
+        
+        self.test_edge = None
+        # in_branch = branch to the leader edge of the fragment
+        self.in_branch = None
+        self.find_count = None
+        self.max_find_count = 0
+        self.test_await = 0
+        # number_id : [id, weight, edge state]
+        # SE(j) is the state of an edge
+        self.branches = {}
+        for i in range(len(neighbors_indexes)):
+            x = neighbors_indexes[i]
+            
+            self.branches[x] = {"id": neighbors_process_ids[i], 
+                                "weight": neighbors_weights[i], 
+                                "state": "Basic",
+                                "active": None,
+                                "resend_accept_sub": None}
+            
+        output(f"{self.index} {self.branches}")
+        self.kill = False
+        self.n = n
+        self.N_threshold = n / math.log(n)
+        
+        self.i_am_root = True
+        self.i_am_leader = None
+        
+        self.size_count = None
+        self.phaseIII = False
+        
+            
+        
+        
+    def run():
+        if self.index == 1:
+            wakeup()
+        
+        await(self.kill == True)
+        
+    def wakeup():
+        self.FN = self.index
+        self.LN = 0
+        self.SN = "Find"
+        self.i_am_root = True
+        initiate(self.LN, self.FN, self.SN, 2**(self.LN + 1))
+        
+    def initiate(L, F, S, H):
+        self.best_edge = None
+        self.best_wt = math.inf
+        self.test_edge = None
+        self.local_MOE_found = False
+        self.i_am_leader = False
+        self.report_count = 0
+        self.size_count = 1
+        for edge in self.branches.values():
+            if edge["state"] == "Branch":
+                edge["active"] = False
+                edge["resend_accept_sub"] = False
+                self.report_count += 1
+                send(("Initiate", L, F, S, H - 1, self.index), to = edge["id"])
+                
+        test()
+    
+    def receive(msg = ("Initiate", L, F, S, H, source_index)):
+        if H == 0 and self.phaseIII == True:
+            send(("Expire Init", L), to = self.branches[source_index]["id"])
+        
+        self.in_branch = source_index
+        self.HN = H
+        if self.LN <= L:
+            self.LN = L
+            self.FN = F
+            self.SN = S
+            initiate(L, F, S, H)
+            
+    def test():
+        basic_adjacent_edges = False
+        for (iterator,edge) in self.branches.items():
+            if edge["state"] == "Basic":
+                basic_adjacent_edges = True
+                if self.test_edge == None or edge["weight"] < self.branches[self.test_edge]["weight"]:
+                    self.test_edge = iterator
+            
+        if basic_adjacent_edges == False:
+            self.local_MOE_found = True
+            # Report()
+        else:
+            send(("Test", self.LN, self.FN), to = self.branches[self.test_edge]["id"])
+        
+   
+              
+        
+
+def main():
+    dict = {}
+    weights = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        line = line.strip(' ')
+        list = line.split(' ')
+        x = list[0]
+        list = list[2:]
+        list = [x.split(",") for x in list]
+        dict[n] = [int(x[0]) for x in list]
+        weights[n] = [int(x[1]) for x in list]
+        line = f.readline()
+        n += 1
+    ps = []
+    
+    output(dict)
+    output(weights)
+    
+    for i in range(1, n):
+        p = new(P, method = 'thread')
+        ps.append(p)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), tuple(weights[i+1]), n))
+        
+    start(ps)
