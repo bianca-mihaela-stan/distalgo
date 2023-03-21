@@ -76,9 +76,8 @@ class P(process):
         output(f"{self.index} {self.branches}")
         self.kill = False
         self.n = n
-        self.size_count = None
         
-        self.N_threshold = self.n / math.log2(self.n)
+        self.size_count = 0
             
         
         
@@ -116,7 +115,7 @@ class P(process):
         if self.SN == "Sleeping":
             wakeup()
             
-        if L < self.LN:
+        if L < self.LN or L == self.LN and self.find_count == 0 and self.test_edge == None and self.test_await == 0:
             # A node with a lower level wants to connect to me. I will respond immediately and he will be absorbed into me.
             
             # The branch connecting me to that fragment is now part of the MST.
@@ -131,9 +130,10 @@ class P(process):
             if self.SN == "Find":
                 self.find_count += 1
                 self.max_find_count = max(self.find_count, self.max_find_count)
-        elif self.branches[source_index]["state"] == "Basic":
+        elif L > self.LN and self.find_count == 0 and self.test_edge == None and self.test_await == 0:
+            send(("Connect", self.LN, self.index), to = self.branches[source_index]["process_id"])    
+        elif L >= self.LN and not (self.find_count == 0 and self.test_edge == None and self.test_await == 0) and self.branches[source_index]["state"] == "Basic":
             # An equal or bigger fragment wants to connect to me.
-            
             # I will deal with this later when my level goes up.
             output(f"{self.index} will deal with Connect from {source_index} later")
             send(("Connect", L, source_index), to = self)
@@ -294,10 +294,8 @@ class P(process):
                 # If I'm still looking for my personal MWOE so I can't talk over the core edge.
                 send(("Report", w, source_index), to = self)
             else:
-                self.size_count += count
-                if self.size_count >= self.N_threshold:
-                    output("PHASE III ACTIVATED")
-                
+                self.size_count += count 
+        
                 if w > best_wt:
                     # If my best edge is better, I'm going to change the root on my side.
                     change_root()
