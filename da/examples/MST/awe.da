@@ -76,8 +76,10 @@ class P(process):
         output(f"{self.index} {self.branches}")
         self.kill = False
         self.n = n
+        self.size_count = None
         
-        self.size_count = 0
+        self.N_threshold = self.n / math.log2(self.n)
+        self.phaseIII = False
             
         
         
@@ -115,7 +117,7 @@ class P(process):
         if self.SN == "Sleeping":
             wakeup()
             
-        if L < self.LN or L == self.LN and self.find_count == 0 and self.test_edge == None and self.test_await == 0:
+        if L < self.LN:
             # A node with a lower level wants to connect to me. I will respond immediately and he will be absorbed into me.
             
             # The branch connecting me to that fragment is now part of the MST.
@@ -124,16 +126,15 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, 2**(self.LN + 1),  self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
                 self.find_count += 1
                 self.max_find_count = max(self.find_count, self.max_find_count)
-        elif L > self.LN and self.find_count == 0 and self.test_edge == None and self.test_await == 0:
-            send(("Connect", self.LN, self.index), to = self.branches[source_index]["process_id"])    
-        elif L >= self.LN and not (self.find_count == 0 and self.test_edge == None and self.test_await == 0) and self.branches[source_index]["state"] == "Basic":
+        elif self.branches[source_index]["state"] == "Basic":
             # An equal or bigger fragment wants to connect to me.
+            
             # I will deal with this later when my level goes up.
             output(f"{self.index} will deal with Connect from {source_index} later")
             send(("Connect", L, source_index), to = self)
@@ -143,35 +144,41 @@ class P(process):
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
             # Also we start out in a state Find.
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN + 1, self.branches[source_index]["weight"], "Find", self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN + 1, self.branches[source_index]["weight"], "Find", self.phaseIII, 2**(self.LN + 1), self.index), to = self.branches[source_index]["process_id"])
         
-    def receive(msg = ("Initiate", L, F, S, source_index)):
-        output(f"{self.index} receives Initiate from {source_index}")
-        # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
-        self.LN = L
-        self.FN = F
-        self.SN = S 
-        # The in branch is the one through which you receive the frament
-        self.in_branch = source_index
-        self.best_edge = None 
-        self.best_wt = math.inf
-        self.size_count = 1
+    def receive(msg = ("Initiate", L, F, S, in_phaseIII, H, source_index)):
+        if in_phaseIII == True and H == 0:
+            ouput("stops here")
+            send(("expInitiate"), to = self.branches[source_index]["process_id"])
         
-        # Continuing to propagate the new fragment id.
-        output(f"{self.index} {self.branches}")
-        for (iterator, branch) in list(self.branches.items()):
-            output(f"{self.index} iterating through {iterator} {branch}")
-            if iterator != source_index and branch["state"] == "Branch":
-                send(("Initiate", L, F, S, self.index), to = branch["process_id"])
+        else:
+            output(f"{self.index} receives Initiate from {source_index}")
+            # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
+            self.LN = L
+            self.FN = F
+            self.SN = S 
+            # The in branch is the one through which you receive the frament
+            self.in_branch = source_index
+            self.best_edge = None 
+            self.best_wt = math.inf
+            self.size_count = 1
+            self.phaseIII = in_phaseIII
             
-                # Counting all the nodes I need to hear from to calculate my MWOE.
-                if S == "Find":
-                    self.find_count += 1
-                    self.max_find_count = max(self.find_count, self.max_find_count)
+            # Continuing to propagate the new fragment id.
+            output(f"{self.index} {self.branches}")
+            for (iterator, branch) in list(self.branches.items()):
+                output(f"{self.index} iterating through {iterator} {branch}")
+                if iterator != source_index and branch["state"] == "Branch":
+                    send(("Initiate", L, F, S, phaseIII, H - 1, self.index), to = branch["process_id"])
                 
-        # Starting to look for the MWOE.
-        if S == "Find":
-            test()
+                    # Counting all the nodes I need to hear from to calculate my MWOE.
+                    if S == "Find":
+                        self.find_count += 1
+                        self.max_find_count = max(self.find_count, self.max_find_count)
+                    
+            # Starting to look for the MWOE.
+            if S == "Find":
+                test()
             
     def test():
         output(f"{self.index} is testing")
@@ -294,8 +301,10 @@ class P(process):
                 # If I'm still looking for my personal MWOE so I can't talk over the core edge.
                 send(("Report", w, source_index), to = self)
             else:
-                self.size_count += count 
-        
+                self.size_count += count
+                if self.size_count >= self.N_threshold:
+                    self.phaseIII = True
+                
                 if w > best_wt:
                     # If my best edge is better, I'm going to change the root on my side.
                     change_root()
