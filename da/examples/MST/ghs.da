@@ -68,6 +68,7 @@ class P(process):
         self.branches = {}
         for i in range(len(neighbors_indexes)):
             x = neighbors_indexes[i]
+            self.branches[x] = {}
             self.branches[x]["process_id"] = neighbors_process_ids[i]
             self.branches[x]["weight"] = neighbors_weights[i]
             self.branches[x]["state"] = "Basic"
@@ -108,7 +109,7 @@ class P(process):
         # output(f"{self.index} : sent connect")
         
     def receive(msg = ("Connect", L, source_index)):
-        output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index]["state"]} and itself has {self.LN} and {self.FN}")
+        output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index]} and itself has {self.LN} and {self.FN}")
         if self.SN == "Sleeping":
             wakeup()
             
@@ -223,7 +224,7 @@ class P(process):
         elif F == self.FN:
             # Someone in the same fragment wants to test me.
             
-            output(f"{self.index} I Reject the test from {source_index} {self.branches[source_index]["state"]}")
+            output(f"{self.index} I Reject the test from {source_index} {self.branches[source_index]}")
             
             
             # If the branch is not already maked as rejected, I mark it.
@@ -251,11 +252,11 @@ class P(process):
             self.best_edge = source_index
             self.best_wt = self.branches[source_index]["weight"]
             
-        output(f"{self.index} receives Accept from {source_index} and best edge becomes {self.branches[source_index]["weight"]} rather than the old {old_best_wt}")
+        output(f"{self.index} receives Accept from {source_index} and best edge becomes {self.branches[source_index]} rather than the old {old_best_wt}")
         report()
             
     def receive(msg = ("Reject", source_index)):
-        output(f"{self.index} receives a Reject from {source_index} but they had {self.branches[source_index]["state"]} ")
+        output(f"{self.index} receives a Reject from {source_index} but they had {self.branches[source_index]} ")
         # If I get rejected I mark the branch and continue testing.
         if self.branches[source_index]["state"] == "Basic":
             self.branches[source_index]["state"] = "Rejected"
@@ -297,7 +298,7 @@ class P(process):
                     for (iterator, branch) in list(self.branches.items()):
                         if branch["state"] == "Branch":
                             send(("Kill", source_index), to = branch["process_id"])
-                            output(f"KILLING {iterator}")
+                    output(f"KILLING MYSELF {self.index}")
                     self.kill = True
     
     def change_root():
@@ -332,8 +333,9 @@ class P(process):
         if self.find_count == 0 and self.test_await == 0:
             for (iterator, branch) in list(self.branches.items()):
                 if branch["state"] == "Branch":
-                    send(("Kill", source_index), to = branch["process_id"])
-                    output(f"KILLING {iterator}")
+                    output(f"{self.index} sending KILL to {iterator}")
+                    send(("Kill", self.index), to = branch["process_id"])
+            output(f"KILLING MYSELF {self.index}")
             self.kill = True
         else:
             output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
@@ -350,6 +352,8 @@ def main():
     while line:
         line = line.strip("\n")
         line = line.strip(' ')
+        if line == "":
+            break
         list = line.split(' ')
         x = list[0]
         list = list[2:]
