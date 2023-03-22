@@ -52,6 +52,7 @@ class P(process):
         self.index = index
         # LN = level of node
         self.LN = 0
+        self.HN = None
         # best_edge = best outgoing edge for each node
         self.best_edge = None
         # best_wt = best outgoing weight for each node
@@ -77,24 +78,25 @@ class P(process):
         self.kill = False
         self.n = n
         self.size_count = None
-        
-        self.N_threshold = self.n / math.log2(self.n)
+        self.N_threshold = int(self.n / math.log2(self.n))
         self.phaseIII = False
             
         
         
     def run():
-        if self.index == 1:
+        if self.index == 5:
             wakeup()
         
         await(self.kill == True)
+        output(f"{self.index} HAS BEEN KILLED")
         
     def wakeup():
         output(f"{self.index}: is waking up")
         # Chooses its minimum weight adjacent edge
         min_node = None
         min_weight = None
-        for (node, (_, weight, _)) in self.branches.items():
+        for (node, info) in self.branches.items():
+            weight = info["weight"]
             if min_weight == None or weight < min_weight:
                 min_node = node
                 min_weight = weight
@@ -105,6 +107,7 @@ class P(process):
         self.LN = 0
         self.SN = "Found"
         self.find_count = 0
+        self.HN = 2**(self.LN + 1)
         
         # Sends a Connect message over this edge.
         output(f"{self.index} is sending a Connect to {min_node}")
@@ -126,7 +129,7 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, 2**(self.LN + 1),  self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, self.HN, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -144,15 +147,17 @@ class P(process):
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
             # Also we start out in a state Find.
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN + 1, self.branches[source_index]["weight"], "Find", self.phaseIII, 2**(self.LN + 1), self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN + 1, self.branches[source_index]["weight"], "Find", self.phaseIII, 2**(self.LN + 2), self.index), to = self.branches[source_index]["process_id"])
         
-    def receive(msg = ("Initiate", L, F, S, in_phaseIII, H, source_index)):
-        if in_phaseIII == True and H == 0:
-            ouput("stops here")
-            send(("expInitiate"), to = self.branches[source_index]["process_id"])
+    def receive(msg = ("Initiate", L, F, S, source_phaseIII, H, source_index)):
+        output(f"{self.index} receives Initiate from {source_index} with H {H}")
         
+        if self.phaseIII == False and source_phaseIII == True:
+            self.phaseIII = True
+        if self.phaseIII == True and H <=10:
+            send(("expInitiate", self.index), to = self.branches[source_index]["process_id"])
+            output(f"INITIATE HAS EXPIRED {self.branches[source_index]}")
         else:
-            output(f"{self.index} receives Initiate from {source_index}")
             # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
             self.LN = L
             self.FN = F
@@ -162,14 +167,14 @@ class P(process):
             self.best_edge = None 
             self.best_wt = math.inf
             self.size_count = 1
-            self.phaseIII = in_phaseIII
+            self.HN = H
             
             # Continuing to propagate the new fragment id.
             output(f"{self.index} {self.branches}")
             for (iterator, branch) in list(self.branches.items()):
                 output(f"{self.index} iterating through {iterator} {branch}")
                 if iterator != source_index and branch["state"] == "Branch":
-                    send(("Initiate", L, F, S, phaseIII, H - 1, self.index), to = branch["process_id"])
+                    send(("Initiate", L, F, S, self.phaseIII, self.HN - 1, self.index), to = branch["process_id"])
                 
                     # Counting all the nodes I need to hear from to calculate my MWOE.
                     if S == "Find":
@@ -177,8 +182,22 @@ class P(process):
                         self.max_find_count = max(self.find_count, self.max_find_count)
                     
             # Starting to look for the MWOE.
+            output(f"{self.index} state is {S}")
             if S == "Find":
                 test()
+            elif S == "Found":
+                report()
+                
+    def receive(msg = ("expInitiate", source_index)):
+        output(f"{self.index}: received expInitiate")
+        if self.in_branch != source_index:
+            send(("expInitiate", self.index), to = self.branches[self.in_branch]["process_id"])
+        else:
+            # this message was sent over the core branch
+            for branch in self.branches.values():
+                self.LN += 1
+                self.HN = 2**(self.LN + 1)
+                send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, self.HN, self.index), to = branch["process_id"])
             
     def test():
         output(f"{self.index} is testing")
@@ -299,23 +318,24 @@ class P(process):
             # I've received a message over the core edge.
             if self.test_await != 0 or self.SN == "Find" and self.find_count > 0 :
                 # If I'm still looking for my personal MWOE so I can't talk over the core edge.
-                send(("Report", w, source_index), to = self)
+                send(("Report", w, count, source_index), to = self)
             else:
-                self.size_count += count
+                self.size_count+= count
                 if self.size_count >= self.N_threshold:
                     self.phaseIII = True
-                
+                    output(f"PHASEIII IS ACTIVATED {self.N_threshold}")
                 if w > best_wt:
                     # If my best edge is better, I'm going to change the root on my side.
                     change_root()
                 elif math.isinf(best_wt) and math.isinf(w):
                     if self.test_await == 0:
-                        output(f"KILLING {self.index}")
+                        
                     
                         for (iterator, branch) in list(self.branches.items()):
                             if branch["state"] == "Branch":
+                                output(f"{self.index} sending KILL to {iterator}")
                                 send(("Kill", source_index), to = branch["process_id"])
-                                output(f"KILLING {iterator}")
+                        output(f"KILLING MYSELF {self.index} {self.branches}")
                         self.kill = True
     
     def change_root():
@@ -349,9 +369,10 @@ class P(process):
     def receive(msg = ("Kill", source_index)):
         if self.find_count == 0 and self.test_await == 0:
             for (iterator, branch) in list(self.branches.items()):
-                if branch["state"] == "Branch":
-                    send(("Kill", source_index), to = branch["process_id"])
-                    output(f"KILLING {iterator}")
+                if branch["state"] == "Branch" and source_index != iterator:
+                    output(f"{self.index} sending KILL to {iterator}")
+                    send(("Kill", self.index), to = branch["process_id"])
+            output(f"KILLING MYSELF {self.index} {self.branches}")
             self.kill = True
         else:
             output(f"{self.index} should be killed but has find_count {self.find_count} and test_await {self.test_await}")
@@ -366,8 +387,10 @@ def main():
     # indexing the nodes with 1
     n = 1
     while line:
-        line = line.strip("\n")
-        line = line.strip(' ')
+        line = line.rstrip("\n")
+        line = line.strip(r' ')
+        if line == "":
+            break
         list = line.split(' ')
         x = list[0]
         list = list[2:]
