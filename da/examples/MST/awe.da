@@ -62,7 +62,6 @@ class P(process):
         # in_branch = branch to the leader edge of the fragment
         self.in_branch = None
         self.find_count = None
-        self.max_find_count = 0
         self.test_await = 0
         # number_id : [id, weight, edge state]
         # SE(j) is the state of an edge
@@ -128,13 +127,12 @@ class P(process):
             log_results.write(f"{self.index} {source_index}\n")
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
-            output(f"{self.index} sends Initiate to {source_index}")
+            output(f"{self.index} sends Initiate to {source_index} and has level {self.LN}")
             send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, self.HN, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
                 self.find_count += 1
-                self.max_find_count = max(self.find_count, self.max_find_count)
         elif self.branches[source_index]["state"] == "Basic":
             # An equal or bigger fragment wants to connect to me.
             
@@ -146,28 +144,29 @@ class P(process):
             
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
             # Also we start out in a state Find.
-            output(f"{self.index} sends Initiate to {source_index}")
+            output(f"{self.index} sends Initiate to {source_index} and has level {self.LN}")
             send(("Initiate", self.LN + 1, self.branches[source_index]["weight"], "Find", self.phaseIII, 2**(self.LN + 2), self.index), to = self.branches[source_index]["process_id"])
         
     def receive(msg = ("Initiate", L, F, S, source_phaseIII, H, source_index)):
-        output(f"{self.index} receives Initiate from {source_index} with H {H}")
+        output(f"{self.index} receives Initiate from {source_index} with H {H} and level L {L}")
         
         if self.phaseIII == False and source_phaseIII == True:
             self.phaseIII = True
-        if self.phaseIII == True and H <=10:
-            send(("expInitiate", self.index), to = self.branches[source_index]["process_id"])
+        if self.phaseIII == True and H <=7:
             output(f"INITIATE HAS EXPIRED {self.branches[source_index]}")
+            send(("expInitiate", L, self.index), to = self.branches[source_index]["process_id"])
         else:
             # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
             self.LN = L
             self.FN = F
             self.SN = S 
+            self.HN = H
             # The in branch is the one through which you receive the frament
             self.in_branch = source_index
             self.best_edge = None 
             self.best_wt = math.inf
             self.size_count = 1
-            self.HN = H
+            self.find_count = 0
             
             # Continuing to propagate the new fragment id.
             output(f"{self.index} {self.branches}")
@@ -179,7 +178,6 @@ class P(process):
                     # Counting all the nodes I need to hear from to calculate my MWOE.
                     if S == "Find":
                         self.find_count += 1
-                        self.max_find_count = max(self.find_count, self.max_find_count)
                     
             # Starting to look for the MWOE.
             output(f"{self.index} state is {S}")
@@ -188,16 +186,18 @@ class P(process):
             elif S == "Found":
                 report()
                 
-    def receive(msg = ("expInitiate", source_index)):
-        output(f"{self.index}: received expInitiate")
+    def receive(msg = ("expInitiate", L, source_index)):
         if self.in_branch != source_index:
-            send(("expInitiate", self.index), to = self.branches[self.in_branch]["process_id"])
+            output(f"{self.index} continues sending expInitiate backt to root and sends it to {self.in_branch}")
+            send(("expInitiate", L, self.index), to = self.branches[self.in_branch]["process_id"])
         else:
-            # this message was sent over the core branch
-            for branch in self.branches.values():
+            if self.LN == L:
                 self.LN += 1
                 self.HN = 2**(self.LN + 1)
-                send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, self.HN, self.index), to = branch["process_id"])
+                # this message was sent over the core branch
+                for (iterator, branch) in self.branches.items():
+                    output(f"{self.index} sends a brand new Initiate to {iterator} with new level {self.LN} and new H {self.HN}")
+                    send(("Initiate", self.LN, self.FN, self.SN, self.phaseIII, self.HN, self.index), to = branch["process_id"])
             
     def test():
         output(f"{self.index} is testing")
@@ -321,7 +321,7 @@ class P(process):
                 send(("Report", w, count, source_index), to = self)
             else:
                 self.size_count+= count
-                if self.size_count >= self.N_threshold:
+                if self.phaseIII == False and self.size_count >= self.N_threshold:
                     self.phaseIII = True
                     output(f"PHASEIII IS ACTIVATED {self.N_threshold}")
                 if w > best_wt:
@@ -364,7 +364,6 @@ class P(process):
     #     # If I'm still looking for the MWOE I need to wait for a response from one more node.
     #     if self.SN == "Find":
     #         self.find_count += 1
-    #         self.max_find_count = max(self.find_count, self.max_find_count)
         
     def receive(msg = ("Kill", source_index)):
         if self.find_count == 0 and self.test_await == 0:
