@@ -122,11 +122,8 @@ class P(process):
         # If this node has no neighbors it will for sure be in the MIS.
         if len(self.neighbors) == 0:
             self.desire_level = 1
-        # If he only has one neighbor, it's not sure that he will be in the MIS, so we need to prevent the desire level from being 1.
-        elif len(self.neighbors) == 1:
-            self.desire_level = 2
         else:
-            self.desire_level = len(self.neighbors)
+            self.desire_level = 2*len(self.neighbors)
             
         self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[1 / self.desire_level, 1 - 1 / self.desire_level])[0]
         
