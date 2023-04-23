@@ -113,18 +113,15 @@ class P(process):
         self.expect_confirmation_from = 0
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        self.terminate = False
         
     def run():
         send(('hi', self.index, self, tuple(self.neighbors.keys())), to = self.coordinator)
-        # output(f"{self.index} : {self.neighbors}")
-        await()
-        # output("ended")
+        await(self.terminate == True)
         
     def receive(msg = ('start round', round_nr)):
         self.round_nr = round_nr
         self.expect_confirmation_from = len(list(self.neighbors.items()))
-        # output(f"{self.index} : starting round {self.round_nr}")
-        # output(f"MIS FROM NEIGHBORS {self.mis_from_neighbors}")
         
         if self.round_nr not in list(self.desire_marks.keys()):
             self.desire_marks[self.round_nr] = []
@@ -169,6 +166,9 @@ class P(process):
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
+        
+        if self.MIS != "NOT DECIDED":
+            self.terminate = True
         
     def receive(msg = ('desire_level + mark', desire_level, mis, index, round_nr), from_ = source):
         if round_nr in list(self.desire_marks.keys()):
