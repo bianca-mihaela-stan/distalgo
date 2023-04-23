@@ -1,0 +1,199 @@
+import da
+import sys
+import random
+import os
+import copy
+import time
+import sys
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/lubys'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/lubys/{nr_nodes}/graph{which_graph}'
+
+total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
+
+
+if not os.path.exists(total_time_results_dir):
+    os.makedirs(total_time_results_dir)
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+
+total_time_results = open(total_time_results_path, "a")
+node_time_results = open(node_time_results_path, "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
+config(handling = 'one', channel = 'reliable')
+
+
+class Coordinator(process):
+    def setup(nr_nodes:int):
+        self.start = time.time()
+        self.initial_neighbors = {}
+        self.nodes = {}
+        self.nr_nodes = nr_nodes
+        self.mis = []
+        self.keep_going = True
+        self.round_nr = 0
+        self.await_ack_from_nr = 0
+        self.stop_times = {i : None for i in range(1, self.nr_nodes)}
+        
+    def run():
+        await(len(setof(a, received(('hi', a, _, _)))) == self.nr_nodes - 1)
+        
+        self.start_time = time.time()
+            
+        await(len(setof(a, received(('done', a, _, _)))) == len(list(self.nodes.keys())))
+            
+        output(self.mis)
+        
+        self.stop = time.time()
+        output(f"total time: {self.stop - self.start}")
+        output(f"total nr of rounds: {self.round_nr}")
+        total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
+        total_time_results.close()
+        
+        for index in self.stop_times.keys():
+            node_time_results.write(f"{index} : {self.stop_times[index] - self.start_time}\n")
+        node_time_results.close()
+        
+        for key in self.initial_neighbors.keys():
+            all = False
+            for value in self.initial_neighbors[key]:
+                a = key in self.mis
+                b = value in self.mis
+                all = all or b
+                if a and b:
+                    output(f"THE MIS IS NOT RIGHT {self.mis} {key} {value}")
+            if key not in self.mis and all == False:
+                output(f"THE MIS IS NOT RIGHT: none of {key}'s neighbors ({self.initial_neighbors[key]}) is in the mis {self.mis}")
+
+        
+        
+    def receive(msg = ('hi', index, id, neighbors)):
+        self.nodes[index] = id
+        self.initial_neighbors[index] = list(neighbors)
+        
+    def receive(msg = ('done', index, node_mis, round_nr)):
+        if index not in list(self.nodes.keys()):
+            return
+        
+        if node_mis == 'IN MIS':
+            self.mis.append(index)
+            
+        if node_mis == 'IN MIS' or node_mis == 'NOT IN MIS':
+            self.stop_times[index] = time.time()
+        
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, coordinator:tuple):
+        self.index = index
+        self.neighbors = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
+        self.coordinator = coordinator
+        self.MIS = 'NOT DECIDED'
+        self.round_nr = 1
+        self.expect_confirmation_from = 0
+        self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        self.terminate = False
+        
+        self.desires = [[], []]
+        self.verification = [[], []]
+        self.propagate_mis = [[], []]
+        self.propagate_not_mis = [[], []]
+        
+    def run():
+        send(('hi', self.index, self, tuple(self.neighbors.keys())), to = self.coordinator)
+        
+        while self.MIS == "NOT DECIDED":
+            output(f"{self.index} started the loop for the {self.round_nr} time")
+            self.expect_confirmation_from = len(list(self.neighbors.items()))
+            
+            self.desires.append([])
+            self.verification.append([])
+            self.propagate_mis.append([])
+            self.propagate_not_mis.append([])
+                
+            # If this node has no neighbors it will for sure be in the MIS.
+            if len(self.neighbors) == 0:
+                self.desire_level = 1
+            else:
+                self.desire_level = 2*len(self.neighbors)
+            
+            # Randomly add yourself to the MIS. 
+            self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[1 / self.desire_level, 1 - 1 / self.desire_level])[0]
+            
+            send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
+            await(len(self.desires[self.round_nr]) == self.expect_confirmation_from)
+            
+            # Agree which one of you gets to stay in the MIS
+            if self.MIS == "IN MIS":
+                if len(list(filter(lambda x : x[1] == "IN MIS" and x[0] >= self.desire_level, self.desires[self.round_nr]))) != 0:
+                    self.MIS = "NOT DECIDED"
+                
+            # Propagate who is actually in the MIS
+            send(('i am in the mis', self.index, self.MIS, round_nr), to = list(self.neighbors.values()))
+            await(len(self.propagate_mis[self.round_nr]) == self.expect_confirmation_from)
+            
+            # Decide if you're definitely out of the MIS based on your neighbors.
+            if 'IN MIS' in self.propagate_mis[self.round_nr]:
+                if self.MIS == "IN MIS":
+                    output("A GRAVE MISTAKE HAS BEEN MADE")
+                self.MIS = 'NOT IN MIS'
+            
+            # Propagate if you're not in the MIS
+            send(('i am not in the mis', self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
+            await(len(self.propagate_not_mis[self.round_nr]) == self.expect_confirmation_from)
+            
+            # Eliminate neighbors that are not in the mis.
+            for x in self.propagate_not_mis[self.round_nr]:
+                if x[0] == 'NOT IN MIS':
+                    self.neighbors.pop(x[1])
+
+            if self.MIS != "NOT DECIDED":
+                send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
+                
+            self.round_nr += 1
+        
+    def receive(msg = ('desire_level + mark', source_desire_level, source_mis, source_index, source_round), from_ = source):
+        self.desires[source_round].append([source_desire_level, source_mis, source_index])
+        if self.round_nr != source_round:
+            output(f"ALERT {self.index} is at round {self.round_nr} and received from {source_index} with {source_round}")
+    
+    def receive(msg = ('i am in the mis', source_index, source_mis, source_round), from_ = source):
+        self.propagate_mis[source_round].append(source_mis)
+        
+    def receive(msg = ('i am not in the mis', source_mis, source_index, source_round), from_ = source):
+        self.propagate_not_mis[source_round].append([source_mis, source_index])
+
+def main():
+    dict = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        list = line.split(' ')
+        x = list[0]
+        dict[n] = [int(x) for x in list[2:(-1)]]
+        line = f.readline()
+        n += 1
+    ps = []
+    for i in range(1, n):
+        p = new(P, method = 'thread' )
+        ps.append(p)
+    
+    
+    coordinator = new(Coordinator)
+    setup({coordinator}, (n,))
+    start(coordinator)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), coordinator))
+        
+    start(ps)
