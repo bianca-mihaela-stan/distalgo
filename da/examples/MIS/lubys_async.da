@@ -93,7 +93,7 @@ class P(process):
         self.neighbors = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
         self.coordinator = coordinator
         self.MIS = 'NOT DECIDED'
-        self.round_nr = 1
+        self.round_nr = 0
         self.expect_confirmation_from = 0
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
@@ -110,11 +110,6 @@ class P(process):
         while self.MIS == "NOT DECIDED":
             output(f"{self.index} started the loop for the {self.round_nr} time")
             self.expect_confirmation_from = len(list(self.neighbors.items()))
-            
-            self.desires.append([])
-            self.verification.append([])
-            self.propagate_mis.append([])
-            self.propagate_not_mis.append([])
                 
             # If this node has no neighbors it will for sure be in the MIS.
             if len(self.neighbors) == 0:
@@ -155,6 +150,10 @@ class P(process):
             if self.MIS != "NOT DECIDED":
                 send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
                 
+            self.desires.append([])
+            self.verification.append([])
+            self.propagate_mis.append([])
+            self.propagate_not_mis.append([])
             self.round_nr += 1
         
     def receive(msg = ('desire_level + mark', source_desire_level, source_mis, source_index, source_round), from_ = source):
