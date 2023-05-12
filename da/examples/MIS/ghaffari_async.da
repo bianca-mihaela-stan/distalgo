@@ -95,17 +95,20 @@ class P(process):
         self.desire_level = 0.5
         self.effective_degree = None
         self.desire_marks = {}
-        self.round_nr = 1
+        self.round_nr = 0
         self.received_mis = {}
         self.expect_confirmation_from = 0
         self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
         
         
-        self.desires = [[], []]
-        self.verification = [[], []]
-        self.propagate_mis = [[], []]
-        self.propagate_not_mis = [[], []]
+        self.desires_current = []
+        self.desires_future = []
+        self.propagate_mis_current = []
+        self.propagate_mis_future = []
+        self.propagate_not_mis_current = []
+        self.propagate_not_mis_future = []
+        self.previous_sum = 0
         self.terminate = False
         
     def run():
@@ -115,7 +118,7 @@ class P(process):
             self.expect_confirmation_from = len(list(self.neighbors.items()))
             
             # Calculate the augumented desire level based on the previous round.
-            self.effective_degree = sum([x[0] for x in self.desires[self.round_nr - 1]])
+            self.effective_degree = self.previous_sum
             if self.effective_degree >= 2:
                 self.desire_level = self.desire_level / 2
             else:
@@ -124,50 +127,60 @@ class P(process):
             self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[self.desire_level, 1 - self.desire_level])[0]
             
             send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
-            await(len(self.desires[self.round_nr]) == self.expect_confirmation_from)
+            await(len(self.desires_current) == self.expect_confirmation_from)
             
             # Check that none of your neighbors are in the MIS
-            if 'IN MIS' in [x[1] for x in self.desires[self.round_nr]] and self.MIS == 'IN MIS':
+            if 'IN MIS' in [x[1] for x in self.desires_current] and self.MIS == 'IN MIS':
                 self.MIS = 'NOT DECIDED'
                 
             # Propagate who is actually in the MIS
             send(('i am in the mis', self.index, self.MIS, round_nr), to = list(self.neighbors.values()))
-            await(len(self.propagate_mis[self.round_nr]) == self.expect_confirmation_from)
+            await(len(self.propagate_mis_current) == self.expect_confirmation_from)
 
             # Decide if you're definitely out of the MIS based on your neighbors.
-            if 'IN MIS' in [x[1] for x in self.propagate_mis[self.round_nr]]:
+            if 'IN MIS' in [x[1] for x in self.propagate_mis_current]:
                 self.MIS = 'NOT IN MIS'
             
             # Propagate if you're not in the MIS
             send(('i am not in the mis', self.MIS, self.index, round_nr), to = list(self.neighbors.values()))
-            await(len(self.propagate_not_mis[self.round_nr]) == self.expect_confirmation_from)
+            await(len(self.propagate_not_mis_current) == self.expect_confirmation_from)
             
             # Eliminate neighbors that are not in the mis.
-            for x in self.propagate_not_mis[self.round_nr]:
+            for x in self.propagate_not_mis_current:
                 if x[1] == 'NOT IN MIS':
                     self.neighbors.pop(x[0])
             
             if self.MIS != "NOT DECIDED":
-                output(f"{self.index} {self.MIS} {self.round_nr}")
+                # output(f"{self.index} {self.MIS} {self.round_nr}")
                 send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
                 
-            self.desires.append([])
-            self.verification.append([])
-            self.propagate_mis.append([])
-            self.propagate_not_mis.append([])
+            self.previous_sum = sum([x[0] for x in self.desires_current])
+            self.desires_current = self.desires_future
+            self.desires_future = []
+            self.propagate_mis_current = self.propagate_mis_future
+            self.propagate_mis_future = []
+            self.propagate_not_mis_current = self.propagate_not_mis_future
+            self.propagate_not_mis_future = []
             self.round_nr += 1
         
     def receive(msg = ('desire_level + mark', source_desire_level, source_mis, source_index, source_round_nr), from_ = source):
-        self.desires[source_round_nr].append([source_desire_level, source_mis, source_index])
-        
+        if self.round_nr != source_round_nr:
+            self.desires_future.append([source_desire_level, source_mis, source_index])
+        else:
+            self.desires_current.append([source_desire_level, source_mis, source_index])
     
     def receive(msg = ('i am in the mis', source_index, source_mis, source_round_nr), from_ = source):
-        self.propagate_mis[source_round_nr].append([source_index, source_mis])
-        # here i don't need all the values, just for this round
+        if self.round_nr != source_round_nr:
+            self.propagate_mis_future.append([source_index, source_mis])
+        else:
+            self.propagate_mis_current.append([source_index, source_mis])
             
         
     def receive(msg = ('i am not in the mis', source_mis, source_index, source_round_nr), from_ = source):
-        self.propagate_not_mis[source_round_nr].append([source_index, source_mis])
+        if self.round_nr != source_round_nr:
+            self.propagate_not_mis_future.append([source_index, source_mis])
+        else:
+            self.propagate_not_mis_current.append([source_index, source_mis])
                 
 
 def main():
