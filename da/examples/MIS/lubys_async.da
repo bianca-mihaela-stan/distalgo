@@ -11,90 +11,27 @@ nr_nodes = sys.argv[1]
 which_graph = sys.argv[2]
 which_run = sys.argv[3]
 
-total_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/total_time_results/lubys'
-node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/node_time_results/lubys/{nr_nodes}/graph{which_graph}'
-
-total_time_results_path = total_time_results_dir + f'/{nr_nodes}_total_time_results.txt'
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/MIS/lubys_stats/node_time_results/{nr_nodes}/graph{which_graph}'
+mis_results_dir = f"/home/bianca/licenta/distalgo/da/examples/MIS/lubys_stats/mis_results/{nr_nodes}/graph{which_graph}"
 node_time_results_path = node_time_results_dir + f'/run{which_run}_node_time_results.txt'
-
-
-if not os.path.exists(total_time_results_dir):
-    os.makedirs(total_time_results_dir)
+mis_results_path = mis_results_dir + f'/run{which_run}_mis_results.txt'
     
 if not os.path.exists(node_time_results_dir):
     os.makedirs(node_time_results_dir)
+    
+if not os.path.exists(mis_results_dir):
+    os.makedirs(mis_results_dir)
 
-total_time_results = open(total_time_results_path, "a")
 node_time_results = open(node_time_results_path, "a")
+mis_results = open(mis_results_path, "a")
 f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
+
 config(handling = 'one', channel = 'reliable')
 
-
-class Coordinator(process):
-    def setup(nr_nodes:int):
-        self.start = time.time()
-        self.initial_neighbors = {}
-        self.nodes = {}
-        self.nr_nodes = nr_nodes
-        self.mis = []
-        self.keep_going = True
-        self.round_nr = 0
-        self.await_ack_from_nr = 0
-        self.stop_times = {i : None for i in range(1, self.nr_nodes)}
-        
-    def run():
-        await(len(setof(a, received(('hi', a, _, _)))) == self.nr_nodes - 1)
-        
-        self.start_time = time.time()
-            
-        await(len(setof(a, received(('done', a, _, _)))) == len(list(self.nodes.keys())))
-            
-        output(self.mis)
-        
-        self.stop = time.time()
-        output(f"total time: {self.stop - self.start}")
-        output(f"total nr of rounds: {self.round_nr}")
-        total_time_results.write(f"total time: {self.stop - self.start} graph : {which_graph} run : {which_run}\n")
-        total_time_results.close()
-        
-        for index in self.stop_times.keys():
-            node_time_results.write(f"{index} : {self.stop_times[index] - self.start_time}\n")
-        node_time_results.close()
-        
-        for key in self.initial_neighbors.keys():
-            all = False
-            for value in self.initial_neighbors[key]:
-                a = key in self.mis
-                b = value in self.mis
-                all = all or b
-                if a and b:
-                    output(f"THE MIS IS NOT RIGHT {self.mis} {key} {value}")
-            if key not in self.mis and all == False:
-                output(f"THE MIS IS NOT RIGHT: none of {key}'s neighbors ({self.initial_neighbors[key]}) is in the mis {self.mis}")
-                
-        output("THE MIS IS CORRECT")
-
-        
-        
-    def receive(msg = ('hi', index, id, neighbors)):
-        self.nodes[index] = id
-        self.initial_neighbors[index] = list(neighbors)
-        
-    def receive(msg = ('done', index, node_mis, round_nr)):
-        if index not in list(self.nodes.keys()):
-            return
-        
-        if node_mis == 'IN MIS':
-            self.mis.append(index)
-            
-        if node_mis == 'IN MIS' or node_mis == 'NOT IN MIS':
-            self.stop_times[index] = time.time()
-        
 class P(process):
-    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple, coordinator:tuple):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple):
         self.index = index
         self.neighbors = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
-        self.coordinator = coordinator
         self.MIS = 'NOT DECIDED'
         self.round_nr = 0
         self.expect_confirmation_from = 0
@@ -110,9 +47,11 @@ class P(process):
         self.propagate_not_mis_future = []
         self.lock = threading.Lock()
         
-    def run():
-        send(('hi', self.index, self, tuple(self.neighbors.keys())), to = self.coordinator)
+        self.start_time = None
+        self.finish_time = None
         
+    def run():
+        self.start_time = time.time()
         while self.MIS == "NOT DECIDED":
             output(f"{self.index} started the loop for the {self.round_nr} time")
             self.expect_confirmation_from = len(list(self.neighbors.items()))
@@ -156,18 +95,18 @@ class P(process):
             for x in self.propagate_not_mis_current:
                 if x[0] == 'NOT IN MIS':
                     self.neighbors.pop(x[1])
-
-            if self.MIS != "NOT DECIDED":
-                send(('done', self.index, self.MIS, self.round_nr), to = self.coordinator)
                 
-            with self.lock:   
-                self.desires_current = self.desires_future
-                self.desires_future = []
-                self.propagate_mis_current = self.propagate_mis_future
-                self.propagate_mis_future = []
-                self.propagate_not_mis_current = self.propagate_not_mis_future
-                self.propagate_not_mis_future = []
-                self.round_nr += 1
+            self.desires_current = self.desires_future
+            self.desires_future = []
+            self.propagate_mis_current = self.propagate_mis_future
+            self.propagate_mis_future = []
+            self.propagate_not_mis_current = self.propagate_not_mis_future
+            self.propagate_not_mis_future = []
+            self.round_nr += 1
+        self.finish_time = time.time()
+        node_time_results.write(f"{self.index} : {self.start_time}, {self.finish_time}, {self.finish_time - self.start_time}\n")
+        mis_results.write(f"{self.index} : {self.MIS}\n")
+
         
     def receive(msg = ('desire_level + mark', source_desire_level, source_mis, source_index, source_round), from_ = source):
         if self.round_nr != source_round:
@@ -203,16 +142,11 @@ def main():
     for i in range(1, n):
         p = new(P, method = 'thread' )
         ps.append(p)
-    
-    
-    coordinator = new(Coordinator)
-    setup({coordinator}, (n,))
-    start(coordinator)
 
     for (i, p) in enumerate(ps):
         ps_ids = []
         for x in dict[i + 1]:
             ps_ids.append(ps[(x - 1)])
-        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids), coordinator))
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids)))
         
     start(ps)
