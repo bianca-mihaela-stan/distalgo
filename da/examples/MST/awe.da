@@ -79,9 +79,7 @@ class P(process):
         output(f"{self.index} {self.branches}")
         self.kill = False
         self.n = n
-        self.i_am_root = True
-            
-        
+        self.i_am_root = True  
         
     def run():
         if self.index == 1:
@@ -128,7 +126,7 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, None, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -140,14 +138,30 @@ class P(process):
             output(f"{self.index} will deal with Connect from {source_index} later")
             send(("Connect", L, F, source_index), to = self)
         else:
-            # An equal fragment wants to join with me.
+            # An equal fragment wants to join with me over a branch.
             
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
             # Also we start out in a state Find.
-            you_are_root = F == max(self.FN, F)
-            send(("Initiate", self.LN + 1, max(self.FN, F), "Find", you_are_root, self.index), to = self.branches[source_index]["process_id"])
+            i_am_root = self.FN == max(self.FN, F)
+            if i_am_root:
+                self.LN += 1
+                self.SN = "Find"
+                self.best_edge = None 
+                self.best_wt = math.inf
+                self.i_am_root = True
+
+                for branch in list(self.branches.values()):
+                    if branch["state"] == "Branch":
+                        send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
+                        
+                        if self.SN == "Find":
+                            self.find_count += 1
+                if self.SN == "Find":
+                    test()
+                    
+    
         
-    def receive(msg = ("Initiate", L, F, S, you_are_root, source_index)):
+    def receive(msg = ("Initiate", L, F, S, source_index)):
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
         self.FN = F
@@ -155,12 +169,8 @@ class P(process):
         self.LN = L
         # The in branch is the one through which you receive the frament
         self.in_branch = source_index
-        if you_are_root:
-            self.i_am_root = True
-            self.find_count += 1
-        elif not you_are_root:
-            self.i_am_root = False
-        
+        self.i_am_root = False
+            
         self.best_edge = None 
         self.best_wt = math.inf
         
@@ -169,14 +179,14 @@ class P(process):
         for (iterator, branch) in list(self.branches.items()):
             output(f"{self.index} iterating through {iterator} {branch}")
             if iterator != source_index and branch["state"] == "Branch":
-                send(("Initiate", L, F, S, None, self.index), to = branch["process_id"])
+                send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
             
                 # Counting all the nodes I need to hear from to calculate my MWOE.
-                if S == "Find":
+                if self.SN == "Find":
                     self.find_count += 1
                 
         # Starting to look for the MWOE.
-        if S == "Find":
+        if self.SN == "Find":
             test()
             
     def test():
@@ -249,6 +259,7 @@ class P(process):
                 # If the branch I sent a test message on is not the same as this one, I do send a reject message.
                 send(("Reject", self.index), to = self.branches[source_index]["process_id"])
             else:
+                
                 self.test_await -= 1
                 # If the branch I sent a test message on is the same, I continue looking for the MWOE without sending the message.
                 test()
@@ -317,8 +328,8 @@ class P(process):
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
-            send(("Connect", self.LN, self.FN, self.index), to = self.branches[best_edge]["process_id"])
             self.branches[best_edge]["state"] = "Branch"
+            send(("Connect", self.LN, self.FN, self.index), to = self.branches[best_edge]["process_id"])
             log_results.write(f"{self.index} {best_edge}\n")
 
     def receive(msg = ("Change root", source_index)):
