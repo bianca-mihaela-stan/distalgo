@@ -81,6 +81,9 @@ class P(process):
         self.n = n
         self.i_am_root = True
         self.i_am_coroot = False
+        
+        self.threshold = n / math.log2(n)
+        self.phaseIII = False
             
         
         
@@ -111,11 +114,11 @@ class P(process):
         
         # Sends a Connect message over this edge.
         output(f"{self.index} is sending a Connect to {min_node}")
-        send(("Connect", self.LN, self.FN, self.index), to = self.branches[min_node]["process_id"])
+        send(("Connect", self.LN, self.FN, self.phaseIII, self.index), to = self.branches[min_node]["process_id"])
         # Waits for a response from the fragment at the other end.
         # output(f"{self.index} : sent connect")
         
-    def receive(msg = ("Connect", L, F, source_index)):
+    def receive(msg = ("Connect", L, F, source_phaseIII, source_index)):
         output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index]} and itself has {self.LN} and {self.FN}")
         if self.SN == "Sleeping":
             wakeup()
@@ -129,7 +132,7 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, None, None, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, None, None, None, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -139,7 +142,7 @@ class P(process):
             
             # I will deal with this later when my level goes up.
             output(f"{self.index} will deal with Connect from {source_index} later")
-            send(("Connect", L, F, source_index), to = self)
+            send(("Connect", L, F, source_phaseIII, source_index), to = self)
         else:
             # An equal fragment wants to join with me.
             
@@ -147,9 +150,20 @@ class P(process):
             # Also we start out in a state Find.
             you_are_root = F == max(self.FN, F)
             you_are_coroot = not you_are_root
-            send(("Initiate", self.LN + 1, max(self.FN, F), "Find", you_are_root, you_are_coroot, self.index), to = self.branches[source_index]["process_id"])
+
+            H = None
+            if self.phaseIII == True or source_phaseIII == True:
+                # H = 2**(self.LN + 1) # asta va fi trimit in ambele parti => 2**L + 2**L = 2**(L+1)
+                H = 2
+            send(("Initiate", self.LN + 1, max(self.FN, F), "Find", you_are_root, you_are_coroot, H, self.index), to = self.branches[source_index]["process_id"])
         
-    def receive(msg = ("Initiate", L, F, S, you_are_root, you_are_coroot, source_index)):
+    def receive(msg = ("Initiate", L, F, S, you_are_root, you_are_coroot, H, source_index)):
+        if H == 0:
+            output("THIS MESSAGE NEEDS TO BE SENT BACK")
+            send(("expInitiate", self.index), to = self.branches[source_index]["process_id"])
+            return
+        if H is not None:
+            H-=1
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
         self.FN = F
@@ -157,10 +171,13 @@ class P(process):
         self.LN = L
         # The in branch is the one through which you receive the frament
         self.in_branch = source_index
+        self.find_count = 0
         if you_are_root:
+            output(f"{self.index} IS ROOT")
             self.i_am_root = True
             self.i_am_coroot = False
             self.find_count += 1
+            self.size_count = 10 #include yourself
         elif you_are_coroot:
             self.i_am_coroot = True
             self.i_am_root = False
@@ -177,7 +194,7 @@ class P(process):
         for (iterator, branch) in list(self.branches.items()):
             output(f"{self.index} iterating through {iterator} {branch}")
             if iterator != source_index and branch["state"] == "Branch":
-                send(("Initiate", L, F, S, None, None, self.index), to = branch["process_id"])
+                send(("Initiate", L, F, S, None, None, H, self.index), to = branch["process_id"])
             
                 # Counting all the nodes I need to hear from to calculate my MWOE.
                 if S == "Find":
@@ -186,6 +203,15 @@ class P(process):
         # Starting to look for the MWOE.
         if S == "Find":
             test()
+            
+    def receive(msg = ("expInitiate", source_index)):
+        if self.i_am_root == True:
+            self.LN += 1
+            H = 2**(self.LN)
+            send(("Initiate", self.LN, self.FN, self.SN, None, None, H, self.index), to = self.branches[source_index]["process_id"])
+        else:
+            output("expInitiate IS BEING PASSED DOWN")
+            send(("expInitiate", self.index), to = self.branches[self.in_branch]["process_id"])
             
     def test():
         output(f"{self.index} is testing")
@@ -200,7 +226,7 @@ class P(process):
                 basic_adjacent = True
                 break
         
-        output(f"{self.index} has basic branches adjacent: {basic_adjacent}")
+        output(f"{self.index} has basic branches adjacent: {basic_adjacent} {self.branches}")
         if basic_adjacent == True:
             
             for (iterator,branch) in list(self.branches.items()):
@@ -292,6 +318,10 @@ class P(process):
                 self.SN = "Found"
                 send(("Report", self.best_wt, self.index), to = self.branches[self.in_branch]["process_id"])
         else:
+            self.size_count += 1
+            if self.size_count > self.threshold:
+                output("PHASE III ACTIVATED")
+                self.phaseIII = True
             output(f"{self.index} who is root has find_count {self.find_count}")
             if self.find_count == 0 and self.test_edge == None and self.test_await == 0:
                 if math.isinf(self.best_wt):
@@ -325,7 +355,7 @@ class P(process):
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
-            send(("Connect", self.LN, self.FN, self.index), to = self.branches[best_edge]["process_id"])
+            send(("Connect", self.LN, self.FN, self.phaseIII, self.index), to = self.branches[best_edge]["process_id"])
             self.branches[best_edge]["state"] = "Branch"
             log_results.write(f"{self.index} {best_edge}\n")
 
