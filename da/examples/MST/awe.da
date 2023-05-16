@@ -146,20 +146,22 @@ class P(process):
             if i_am_root:
                 self.LN += 1
                 self.SN = "Find"
-                self.best_edge = None 
-                self.best_wt = math.inf
                 self.i_am_root = True
 
-                for branch in list(self.branches.values()):
-                    if branch["state"] == "Branch":
-                        send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
-                        
-                        if self.SN == "Find":
-                            self.find_count += 1
-                if self.SN == "Find":
-                    test()
+                Initiate()
                     
-    
+    def Initiate(source_index=None):
+        self.best_edge = None 
+        self.best_wt = math.inf
+
+        for (iterator, branch) in list(self.branches.items()):
+            if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
+                send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
+                
+                if self.SN == "Find":
+                    self.find_count += 1
+        if self.SN == "Find":
+            test()
         
     def receive(msg = ("Initiate", L, F, S, source_index)):
         output(f"{self.index} receives Initiate from {source_index}")
@@ -171,23 +173,7 @@ class P(process):
         self.in_branch = source_index
         self.i_am_root = False
             
-        self.best_edge = None 
-        self.best_wt = math.inf
-        
-        # Continuing to propagate the new fragment id.
-        output(f"{self.index} {self.branches}")
-        for (iterator, branch) in list(self.branches.items()):
-            output(f"{self.index} iterating through {iterator} {branch}")
-            if iterator != source_index and branch["state"] == "Branch":
-                send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
-            
-                # Counting all the nodes I need to hear from to calculate my MWOE.
-                if self.SN == "Find":
-                    self.find_count += 1
-                
-        # Starting to look for the MWOE.
-        if self.SN == "Find":
-            test()
+        Initiate(source_index)
             
     def test():
         output(f"{self.index} is testing")
