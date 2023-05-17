@@ -80,6 +80,7 @@ class P(process):
         self.kill = False
         self.n = n
         self.i_am_root = True  
+        self.HN = None
         
     def run():
         if self.index == 1:
@@ -126,7 +127,7 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, 2**(self.LN + 1), self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -146,6 +147,7 @@ class P(process):
             if i_am_root:
                 self.LN += 1
                 self.SN = "Find"
+                self.HN = 2**(self.LN + 1)
                 self.i_am_root = True
 
                 Initiate()
@@ -158,24 +160,42 @@ class P(process):
 
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
-                send(("Initiate", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
+                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.index), to = branch["process_id"])
                 
                 if self.SN == "Find":
                     self.find_count += 1
         if self.SN == "Find":
             test()
         
-    def receive(msg = ("Initiate", L, F, S, source_index)):
+    def receive(msg = ("Initiate", L, F, S, H, source_index)):
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
         self.FN = F
         self.SN = S 
         self.LN = L
+        self.HN = H - 1
         # The in branch is the one through which you receive the frament
         self.in_branch = source_index
         self.i_am_root = False
+        
+        if H == 0:
+            send(("expInitiate", L, self.index), to = self.branches[source_index]["process_id"])
+            return
             
         Initiate(source_index)
+        
+    def receive(msg = ("expInitiate", L, source_index)):
+        output(f"{self.index} : received EXPINITIATE from {source_index}")
+        if self.LN == L:
+            if self.SN == "Find" and self.in_branch != None:
+                self.SN = "Found"
+                send(("expInitiate", L, self.index), to = self.branches[self.in_branch]["process_id"])
+            elif self.i_am_root:
+                self.LN += 1
+                self.HN = 2**(self.LN + 1)
+                self.SN = "Find"
+                Initiate()
+            
             
     def test():
         output(f"{self.index} is testing")
@@ -259,7 +279,7 @@ class P(process):
         # I found the MWOE for me.
         self.test_edge = None
         self.test_await -= 1
-        if self.branches[source_index]["weight"] < self.best_wt:
+        if math.isinf(self.best_wt) and self.branches[source_index]["weight"] < self.best_wt:
             self.best_edge = source_index
             self.best_wt = self.branches[source_index]["weight"]
             
@@ -309,7 +329,7 @@ class P(process):
         if self.LN == L:
             self.find_count -= 1
             self.size_count += count
-            if not math.isinf(w) and w < self.best_wt or math.isinf(self.best_wt):
+            if not math.isinf(w) and (math.isinf(self.best_wt) or (not math.isinf(self.best_wt)  and w < self.best_wt)):
                 self.best_wt = w
                 self.best_edge = source_index
             if self.size_count >= 2**(self.LN+1) and self.SN != "KILL":
