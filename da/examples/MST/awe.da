@@ -58,6 +58,7 @@ class P(process):
         self.LN = 0
         # best_edge = best outgoing edge for each node
         self.best_edge = None
+        output(f"LAST BEST EDGE {self.best_edge} IN setup ")
         # best_wt = best outgoing weight for each node
         self.best_wt = math.inf
         
@@ -81,6 +82,8 @@ class P(process):
         self.n = n
         self.i_am_root = True  
         self.HN = None
+        self.threshold = int(n /math.log(n))
+        self.phaseIII = False
         
     def run():
         if self.index == 1:
@@ -127,7 +130,9 @@ class P(process):
             
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
-            send(("Initiate", self.LN, self.FN, self.SN, 2**(self.LN + 1), self.index), to = self.branches[source_index]["process_id"])
+
+            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.phaseIII, self.index), to = self.branches[source_index]["process_id"])
+            
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -154,33 +159,37 @@ class P(process):
                     
     def Initiate(source_index=None):
         self.best_edge = None 
+        output(f"LAST BEST EDGE {self.best_edge} IN initiate ")
         self.best_wt = math.inf
         self.size_count = 1
         self.find_count = 0
 
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
-                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.index), to = branch["process_id"])
+                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.phaseIII, self.index), to = branch["process_id"])
                 
                 if self.SN == "Find":
                     self.find_count += 1
         if self.SN == "Find":
             test()
         
-    def receive(msg = ("Initiate", L, F, S, H, source_index)):
+    def receive(msg = ("Initiate", L, F, S, H, source_phaseIII, source_index)):
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
         self.FN = F
         self.SN = S 
         self.LN = L
-        self.HN = H - 1
+        
         # The in branch is the one through which you receive the frament
         self.in_branch = source_index
         self.i_am_root = False
         
-        if H == 0:
-            send(("expInitiate", L, self.index), to = self.branches[source_index]["process_id"])
-            return
+        if source_phaseIII == True:
+            self.phaseIII = source_phaseIII
+            self.HN = H - 1
+            if H == 0:
+                send(("expInitiate", L, self.index), to = self.branches[source_index]["process_id"])
+                return
             
         Initiate(source_index)
         
@@ -279,8 +288,9 @@ class P(process):
         # I found the MWOE for me.
         self.test_edge = None
         self.test_await -= 1
-        if math.isinf(self.best_wt) and self.branches[source_index]["weight"] < self.best_wt:
+        if math.isinf(self.best_wt) and self.branches[source_index]["weight"] < self.best_wt and self.branches[source_index]["state"] == "Basic":
             self.best_edge = source_index
+            output(f"LAST BEST EDGE {self.best_edge} IN accept ")
             self.best_wt = self.branches[source_index]["weight"]
             
         output(f"{self.index} receives Accept from {source_index} and best edge becomes {self.branches[source_index]} with {self.best_wt} rather than the old {old_best_wt}")
@@ -332,6 +342,10 @@ class P(process):
             if not math.isinf(w) and (math.isinf(self.best_wt) or (not math.isinf(self.best_wt)  and w < self.best_wt)):
                 self.best_wt = w
                 self.best_edge = source_index
+                output(f"LAST BEST EDGE {self.best_edge} IN report ")
+            if self.size_count >= self.threshold and self.phaseIII == False:
+                self.phaseIII = True
+                output("PASSED THRESHOLD")
             if self.size_count >= 2**(self.LN+1) and self.SN != "KILL":
                 self.LN = int(math.log2(self.size_count))
                 output("LEVEL NEEDS TO BE INCREASED")
