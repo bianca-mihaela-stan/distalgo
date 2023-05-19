@@ -131,6 +131,8 @@ class P(process):
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
 
+            if self.HN == None and self.phaseIII == True:
+                self.HN = 2**(self.LN + 1)
             send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.phaseIII, self.index), to = self.branches[source_index]["process_id"])
             
             
@@ -154,7 +156,6 @@ class P(process):
                 self.SN = "Find"
                 self.HN = 2**(self.LN + 1)
                 self.i_am_root = True
-
                 Initiate()
                     
     def Initiate(source_index=None):
@@ -184,7 +185,7 @@ class P(process):
         self.in_branch = source_index
         self.i_am_root = False
         
-        if source_phaseIII == True:
+        if source_phaseIII == True and H != None:
             self.phaseIII = source_phaseIII
             self.HN = H - 1
             if H == 0:
@@ -245,6 +246,8 @@ class P(process):
             wakeup()
             
         output(f"{self.index} received Test from {source_index} with {L} {F} and he has {self.LN} {self.FN}")
+        # if self.branches[source_index]["state"] == "Branch":
+        #     return
         
             
         if L > self.LN and F != self.FN:
@@ -339,16 +342,18 @@ class P(process):
         if self.LN == L:
             self.find_count -= 1
             self.size_count += count
+            output(f"{self.index} received size {count} from {source_index}")
             if not math.isinf(w) and (math.isinf(self.best_wt) or (not math.isinf(self.best_wt)  and w < self.best_wt)):
                 self.best_wt = w
                 self.best_edge = source_index
                 output(f"LAST BEST EDGE {self.best_edge} IN report ")
             if self.size_count >= self.threshold and self.phaseIII == False:
                 self.phaseIII = True
-                output("PASSED THRESHOLD")
-            if self.size_count >= 2**(self.LN+1) and self.SN != "KILL":
+                output(f"{self.index} : PASSED THRESHOLD")
+            if self.size_count >= 2**(self.LN+1) and self.SN != "KILL" and self.i_am_root == True:
+                output(f"{self.index} : LEVEL NEEDS TO BE INCREASED from {self.LN} to {int(math.log2(self.size_count))} because size count is {self.size_count}")
                 self.LN = int(math.log2(self.size_count))
-                output("LEVEL NEEDS TO BE INCREASED")
+                self.HN = 2**(self.LN + 1)
                 Initiate()
                 return
             report()
