@@ -152,6 +152,7 @@ class P(process):
                 self.SN = "Find"
                 self.HN = 2**(self.LN + 1)
                 self.i_am_root = True
+                self.in_branch = None
                 output(f"{self.index} : IS ROOT AT CONNECT")
                 Initiate()
         
@@ -335,11 +336,19 @@ class P(process):
             # I have to wait for one less report.
             self.find_count -= 1
             self.size_count += count
+            if self.size_count >= 2**(self.LN + 1):
+                output("VERY SPECIAL EXPINITIATE")
+                if self.i_am_root == False:
+                    send(("expInitiate", self.LN, self.index), to = self.branches[self.in_branch]["process_id"])
+                else:
+                    send(("expInitiate", self.LN, self.index), to = self)
+                    
+                return
+                
             if w < self.best_wt:
                 self.best_wt = w
                 self.best_edge = source_index
             report()
-                
     
     def change_root():
         # Remake the path to the best_edge by sending "Change root" throught the path.
