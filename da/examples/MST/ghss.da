@@ -154,6 +154,7 @@ class P(process):
         self.best_edge = None 
         self.best_wt = math.inf
         self.find_count = 0
+        self.size_count = 1
 
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
@@ -278,9 +279,14 @@ class P(process):
             output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
             self.SN = "Found"
             if self.i_am_root == False: 
-                send(("Report", self.best_wt, self.index), to = self.branches[in_branch]["process_id"])
+                send(("Report", self.best_wt, self.size_count, self.index), to = self.branches[in_branch]["process_id"])
             else:
-                if not math.isinf(self.best_wt):
+                if self.size_count >= 2**(self.LN + 1):
+                    output(f"{self.index} LEVEL IS BEING INCREASED from {self.LN} to {int(math.log2(self.size_count)) + 1}")
+                    self.LN = int(math.log2(self.size_count)) + 1
+                    self.SN = "Find"
+                    Initiate()
+                elif not math.isinf(self.best_wt):
                     # If my best edge is better, I'm going to change the root on my side.
                     change_root()
                 else:
@@ -293,12 +299,13 @@ class P(process):
                     self.kill = True
             
             
-    def receive(msg = ("Report", w, source_index)):
+    def receive(msg = ("Report", w, count, source_index)):
         output(f"{self.index} received a Report from {source_index} with {w} and itself has best_wt {best_wt} and {in_branch} but still has to find {self.find_count} {self.SN} ")
         # Someone reported up to me.
         
         # I have to wait for one less report.
         self.find_count -= 1
+        self.size_count += count
         if w < self.best_wt:
             self.best_wt = w
             self.best_edge = source_index
