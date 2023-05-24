@@ -126,7 +126,7 @@ class P(process):
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
             self.HN = 2**(self.LN + 1)
-            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, True, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -165,7 +165,7 @@ class P(process):
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
                 output(f"{self.index} sends Initiate to {iterator}")
-                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = branch["process_id"])
+                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, False, self.index), to = branch["process_id"])
                 
                 if self.SN == "Find":
                     self.find_count += 1
@@ -186,7 +186,7 @@ class P(process):
             else:
                 send(("expInitiate", L, self.index), to = self.branches[self.in_branch]["process_id"])
     
-    def receive(msg = ("Initiate", L, F, S, H, passed, source_index)):
+    def receive(msg = ("Initiate", L, F, S, H, passed, absorbed, source_index)):
         if self.LN > L and self.FN != F:
             output(f"SE FACE INITIATE PE UN FRAGMENT DE NIVEL MAI MARE {self.LN} {L}")
             
@@ -198,6 +198,9 @@ class P(process):
                 return
             self.HN = H - 1
         output(f"{self.index} goes further")
+        
+        if absorbed == True:
+            send(("Exploration", self.LN, 2**{self.LN + 1}, self.index), to = self.branches[source_index]["process_id"])
             
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
@@ -210,6 +213,9 @@ class P(process):
         self.passed_threshold = passed
         
         Initiate(source_index)
+            
+    def receive(msg = ("Exploration", a, b, c)):
+        output("exploration")
             
     def test():
         output(f"{self.index} is testing")
