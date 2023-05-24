@@ -78,6 +78,7 @@ class P(process):
         self.threshold = self.n / math.log2(self.n)
         self.HN = 0
         self.passed_threshold = False
+        self.back_to_initial_node = None
             
         
         
@@ -200,7 +201,7 @@ class P(process):
         output(f"{self.index} goes further")
         
         if absorbed == True:
-            send(("Exploration", self.LN, 2**{self.LN + 1}, self.index), to = self.branches[source_index]["process_id"])
+            send(("Exploration", L, 2**(L + 1), self.index, self.index), to = self.branches[source_index]["process_id"])
             
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
@@ -214,8 +215,26 @@ class P(process):
         
         Initiate(source_index)
             
-    def receive(msg = ("Exploration", a, b, c)):
-        output("exploration")
+    def receive(msg = ("Exploration", L, C, initial_node, source_index)):
+        output("EXPLORATION")
+        if self.i_am_root == False:
+            if C <= 0:
+                send(("Ack", L, initial_node, self.index), to = self.branches[self.back_to_initial_node]["process_id"])
+            else:
+                nr = 0
+                self.back_to_initial_node = source_index
+                for branch in self.branches.values():
+                    if branch["state"] == "Branch":
+                        nr += 1
+                nr -= 1
+                C-= 1
+                send(("Exploration", L, C, initial_node, self.index), to = self.branches[self.in_branch]["process_id"])
+                
+    def receive(msg = ("Ack", L, initial_node, source_index)):
+        if self.index == initial_node:
+            # finally here
+        else:
+            send(("Ack", L, initial_node, self.index), to= self.branches[self.in_branch]["process_id"])
             
     def test():
         output(f"{self.index} is testing")
