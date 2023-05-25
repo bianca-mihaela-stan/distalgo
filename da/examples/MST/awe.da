@@ -103,7 +103,7 @@ class P(process):
         self.branches[min_node]["state"] = "Branch"   
         # log_results.write(f"{self.index} {min_node}\n")
         self.LN = 0
-        self.SN = "Found"
+        self.SN = "Found-Notified"
         self.find_count = 0
         
         # Sends a Connect message over this edge.
@@ -196,7 +196,7 @@ class P(process):
             
     def receive(msg = ("expInitiate", L, source_index)):
         if L == self.LN and self.SN == "Find":
-            self.SN = "Found"
+            self.SN = "Found-Notified"
             if self.i_am_root == True:
                 output(f"{self.index} expInitiate reached root")
                 self.LN += 1
@@ -338,7 +338,7 @@ class P(process):
         # If I am a leaf and I don't have any more edges to test, I mark myself as Found and report up.
         if self.find_count == 0 and self.test_edge == None:
             output(f"!!!!!!!!!!!!!!!!{self.index} FACE REPORT !!!!!!!!!!")
-            self.SN = "Found"
+            self.SN = "Found-Undecided"
             if self.i_am_root == False: 
                 send(("Report", self.best_wt, self.size_count, self.LN, self.index), to = self.branches[in_branch]["process_id"])
             else:
@@ -382,6 +382,9 @@ class P(process):
         # Remake the path to the best_edge by sending "Change root" throught the path.
         if self.branches[best_edge]["state"] == "Branch":
             send(("Change root", self.index), to = self.branches[best_edge]["process_id"])
+            # for (iterator, branch) in self.branches.items():
+            #     if iterator != self.best_edge and iterator != self.in_branch and branch["state"] == "Branch":
+            #         send(("MWOEfound", self.index), to = branch["process_id"])
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
@@ -390,7 +393,17 @@ class P(process):
             # log_results.write(f"{self.index} {best_edge}\n")
 
     def receive(msg = ("Change root", source_index)):
-        change_root()        
+        if self.SN == "Found-Undecided":
+            self.SN = "Found-Decided"
+            change_root()        
+            
+    # def receive(msg = ("MWOEfound", source_index)):
+    #     if self.SN == "Found-Undecided":
+    #         self.SN = "Found-Decided"
+    #         for (iterator, branch) in self.branches.items():
+    #             if iterator != source_index and branch["state"] == "Branch":
+    #                 send(("MWOEfound", self.index), to = branch["process_id"])
+        
         
     def receive(msg = ("Kill", source_index)):
         if self.find_count == 0 and self.test_edge == None:
