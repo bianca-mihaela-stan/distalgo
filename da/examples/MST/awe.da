@@ -71,6 +71,7 @@ class P(process):
             self.branches[x]["process_id"] = neighbors_process_ids[i]
             self.branches[x]["weight"] = neighbors_weights[i]
             self.branches[x]["state"] = "Basic"
+            self.branches[x]["resendAcceptSubmission"] = False
             
         output(f"{self.index} {self.branches}")
         self.kill = False
@@ -135,6 +136,9 @@ class P(process):
             else:
                 send(("AcceptSubmission", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index]["process_id"])
                 
+                if self.SN == "Found-Undecided":
+                    self.branches[source_index]["resendAcceptSubmission"] = True
+                
         elif (L >= self.LN and self.branches[source_index]["state"] == "Basic") or (self.LN == L and self.branches[source_index]["state"] == "Branch" and self.SN != "Found-Notified"):
             # An equal or bigger fragment wants to connect to me.
             
@@ -161,6 +165,8 @@ class P(process):
         
     def receive(msg = ("AcceptSubmission", L, F, S, source_index)):
         self.in_branch = source_index
+        if S == "Found-Notified":
+            output("Ready to start Test-Distance")
         
     def Initiate(source_index=None):
         self.best_edge = None 
@@ -333,7 +339,6 @@ class P(process):
                     self.passed_threshold = True
                 if not math.isinf(self.best_wt):
                     # If my best edge is better, I'm going to change the root on my side.
-                    self.SN = "Found-Notified"
                     change_root()
                 else:
                     output(f"KILLING {self.index}")
@@ -367,6 +372,13 @@ class P(process):
             report()
     
     def change_root():
+        self.SN = "Found-Notified"
+        
+        for (iterator, branch) in self.branches.items():
+            if branch["resendAcceptSubmission"] == True:
+                branch["resendAcceptSubmission"] = False
+                send(("AcceptSubmission", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
+        
         # Remake the path to the best_edge by sending "Change root" throught the path.
         if self.branches[best_edge]["state"] == "Branch":
             send(("Change root", self.index), to = self.branches[best_edge]["process_id"])
@@ -382,12 +394,17 @@ class P(process):
 
     def receive(msg = ("Change root", source_index)):
         if self.SN == "Found-Undecided":
-            self.SN = "Found-Notified"
             change_root()        
             
     def receive(msg = ("MWOEfound", source_index)):
         if self.SN == "Found-Undecided":
             self.SN = "Found-Notified"
+            
+            for (iterator, branch) in self.branches.items():
+                if branch["resendAcceptSubmission"] == True:
+                    branch["resendAcceptSubmission"] = False
+                    send(("AcceptSubmission", self.LN, self.FN, self.SN, self.index), to = branch["process_id"])
+            
             for (iterator, branch) in self.branches.items():
                 if iterator != source_index and iterator != self.in_branch and branch["state"] == "Branch":
                     send(("MWOEfound", self.index), to = branch["process_id"])
