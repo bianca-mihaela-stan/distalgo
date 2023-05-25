@@ -382,9 +382,9 @@ class P(process):
         # Remake the path to the best_edge by sending "Change root" throught the path.
         if self.branches[best_edge]["state"] == "Branch":
             send(("Change root", self.index), to = self.branches[best_edge]["process_id"])
-            # for (iterator, branch) in self.branches.items():
-            #     if iterator != self.best_edge and iterator != self.in_branch and branch["state"] == "Branch":
-            #         send(("MWOEfound", self.index), to = branch["process_id"])
+            for (iterator, branch) in self.branches.items():
+                if iterator != self.best_edge and iterator != self.in_branch and branch["state"] == "Branch":
+                    send(("MWOEfound", self.index), to = branch["process_id"])
         else:
             output(f"{self.index} sends connect - change root to {best_edge}")
             # Once you get to the best edge, send a connect message to the other fragment.
@@ -397,12 +397,12 @@ class P(process):
             self.SN = "Found-Decided"
             change_root()        
             
-    # def receive(msg = ("MWOEfound", source_index)):
-    #     if self.SN == "Found-Undecided":
-    #         self.SN = "Found-Decided"
-    #         for (iterator, branch) in self.branches.items():
-    #             if iterator != source_index and branch["state"] == "Branch":
-    #                 send(("MWOEfound", self.index), to = branch["process_id"])
+    def receive(msg = ("MWOEfound", source_index)):
+        if self.SN == "Found-Undecided":
+            self.SN = "Found-Decided"
+            for (iterator, branch) in self.branches.items():
+                if iterator != source_index and iterator != self.in_branch and branch["state"] == "Branch":
+                    send(("MWOEfound", self.index), to = branch["process_id"])
         
         
     def receive(msg = ("Kill", source_index)):
