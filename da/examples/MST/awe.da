@@ -78,7 +78,7 @@ class P(process):
         self.threshold = self.n / math.log2(self.n)
         self.HN = 0
         self.passed_threshold = False
-        self.back_to_initial_node = None
+        self.nr_rejected = None
             
         
         
@@ -116,7 +116,25 @@ class P(process):
         output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index]} and itself has {self.LN} and {self.FN}")
         if self.SN == "Sleeping":
             wakeup()
-            
+        
+        # if self.SN == "Found-Undecided" and L >= self.LN:
+        #     output(f"{self.index} will deal with Connect from {source_index} later because I'm Found-Undecided")
+        #     send(("Connect", L, F, source_index), to = self)
+        # if self.SN == "Found-Decided" and L == self.LN:
+        #     i_am_root = self.FN == max(self.FN, F)
+        #     if i_am_root:
+        #         self.LN += 1
+        #         self.SN = "Find"
+        #         self.HN = 2**(self.LN + 1)
+        #         self.i_am_root = True
+        #         self.in_branch = None
+        #         output(f"{self.index} : IS ROOT AT CONNECT")
+        #         Initiate()
+        # elif self.SN == "Found-Decided" and L != self.LN:
+        #     output(f"{self.index} will deal with Connect from {source_index} later because I'm Found-Decided")
+        #     send(("Connect", L, F, source_index), to = self)
+         
+        # if self.SN == "Find" or self.SN == "Found":
         if L < self.LN and self.branches[source_index]["state"] == "Basic":
             # A node with a lower level wants to connect to me. I will respond immediately and he will be absorbed into me.
             
@@ -127,7 +145,7 @@ class P(process):
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
             self.HN = 2**(self.LN + 1)
-            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, True, self.index), to = self.branches[source_index]["process_id"])
+            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = self.branches[source_index]["process_id"])
             
             # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
@@ -162,11 +180,12 @@ class P(process):
         self.best_wt = math.inf
         self.find_count = 0
         self.size_count = 1
+        self.nr_rejected = 0
 
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
                 output(f"{self.index} sends Initiate to {iterator}")
-                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, False, self.index), to = branch["process_id"])
+                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = branch["process_id"])
                 
                 if self.SN == "Find":
                     self.find_count += 1
@@ -187,7 +206,7 @@ class P(process):
             else:
                 send(("expInitiate", L, self.index), to = self.branches[self.in_branch]["process_id"])
     
-    def receive(msg = ("Initiate", L, F, S, H, passed, absorbed, source_index)):
+    def receive(msg = ("Initiate", L, F, S, H, passed, source_index)):
         if self.LN > L and self.FN != F:
             output(f"SE FACE INITIATE PE UN FRAGMENT DE NIVEL MAI MARE {self.LN} {L}")
             
@@ -199,9 +218,6 @@ class P(process):
                 return
             self.HN = H - 1
         output(f"{self.index} goes further")
-        
-        if absorbed == True:
-            send(("Exploration", L, 2**(L + 1), self.index, self.index), to = self.branches[source_index]["process_id"])
             
         output(f"{self.index} receives Initiate from {source_index}")
         # It has been decided that I absorb/join another fragment. These values have already been calculated, I just accept them.
@@ -214,27 +230,6 @@ class P(process):
         self.passed_threshold = passed
         
         Initiate(source_index)
-            
-    def receive(msg = ("Exploration", L, C, initial_node, source_index)):
-        output("EXPLORATION")
-        if self.i_am_root == False:
-            if C <= 0:
-                send(("Ack", L, initial_node, self.index), to = self.branches[self.back_to_initial_node]["process_id"])
-            else:
-                nr = 0
-                self.back_to_initial_node = source_index
-                for branch in self.branches.values():
-                    if branch["state"] == "Branch":
-                        nr += 1
-                nr -= 1
-                C-= 1
-                send(("Exploration", L, C, initial_node, self.index), to = self.branches[self.in_branch]["process_id"])
-                
-    def receive(msg = ("Ack", L, initial_node, source_index)):
-        if self.index == initial_node:
-            # finally here
-        else:
-            send(("Ack", L, initial_node, self.index), to= self.branches[self.in_branch]["process_id"])
             
     def test():
         output(f"{self.index} is testing")
@@ -297,7 +292,16 @@ class P(process):
                 
                 # I always mark the edge as rejected, but not always send the rejection message.
                 self.branches[source_index]["state"] = "Rejected"
-                
+                self.nr_rejected += 1
+                if self.nr_rejected >= 2**(self.LN):
+                    output("REJECTED EXPINITIATE")
+                    if self.i_am_root == False:
+                        send(("expInitiate", self.LN, self.index), to = self.branches[self.in_branch]["process_id"])
+                    else:
+                        send(("expInitiate", self.LN, self.index), to = self)
+                    return
+                    
+                                    
             if self.test_edge != source_index:
                 
                 # If the branch I sent a test message on is not the same as this one, I do send a reject message.
@@ -362,7 +366,6 @@ class P(process):
             self.find_count -= 1
             self.size_count += count
             if self.size_count >= 2**(self.LN + 1):
-                output("VERY SPECIAL EXPINITIATE")
                 if self.i_am_root == False:
                     send(("expInitiate", self.LN, self.index), to = self.branches[self.in_branch]["process_id"])
                 else:
