@@ -128,12 +128,13 @@ class P(process):
             # I respond and tell it to take my level, fragment identity and state (to know wether to look for MWOE with me or not).
             output(f"{self.index} sends Initiate to {source_index}")
             self.HN = 2**(self.LN + 1)
-            send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = self.branches[source_index]["process_id"])
             
-            # If I'm still looking for the MWOE I need to wait for a response from one more node.
             if self.SN == "Find":
+                send(("Initiate", self.LN, self.FN, self.SN, self.HN, self.passed_threshold, self.index), to = self.branches[source_index]["process_id"])
                 self.find_count += 1
-                output(f"{self.index} needs to receive report from {source_index}")
+            else:
+                send(("AcceptSubmission", self.LN, self.FN, self.SN, self.index), to = self.branches[source_index]["process_id"])
+                
         elif (L >= self.LN and self.branches[source_index]["state"] == "Basic") or (self.LN == L and self.branches[source_index]["state"] == "Branch" and self.SN != "Found-Notified"):
             # An equal or bigger fragment wants to connect to me.
             
@@ -157,6 +158,9 @@ class P(process):
                 self.in_branch = None
                 output(f"{self.index} : IS ROOT AT CONNECT")
                 Initiate()
+        
+    def receive(msg = ("AcceptSubmission", L, F, S, source_index)):
+        self.in_branch = source_index
         
     def Initiate(source_index=None):
         self.best_edge = None 
