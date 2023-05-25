@@ -72,6 +72,7 @@ class P(process):
             self.branches[x]["weight"] = neighbors_weights[i]
             self.branches[x]["state"] = "Basic"
             self.branches[x]["resendAcceptSubmission"] = False
+            self.branches[x]["active"] = False
             
         output(f"{self.index} {self.branches}")
         self.kill = False
@@ -166,7 +167,26 @@ class P(process):
     def receive(msg = ("AcceptSubmission", L, F, S, source_index)):
         self.in_branch = source_index
         if S == "Found-Notified":
-            output("Ready to start Test-Distance")
+            send(("TestDistance", self.LN, 2**(self.LN + 1), self.index), to = self.branches[source_index]["process_id"])
+            
+    # def receive(msg = ("TestDistance", L, C, source_index)):
+    #     self.branch[source_index]["active"] = True
+    #     if L < self.LDlevel:
+    #         # send ack over this edge
+    #     elif L == self.LDlevel:
+    #         if C < self.minLeaderDistance:
+    #             self.minLeaderDistance = hasattr
+    #             #forward the test distance message
+    #     elif L > self.LDlevel:
+    #         self.LDlevel = L
+    #         self.minLeaderDistance = C
+    #         # send ack to all active downstream branches except this one to bring all other attached leaders up to this new level
+    #         #forward the test distance through the upstream branch
+        
+    # def receive(msg = ("Ack", L, source_index)):
+    #     if L >= self.LDlevel:
+    #         self.LDlevel = L+1
+    #         # forward a copy of the ack message to all active downstream branch edges
         
     def Initiate(source_index=None):
         self.best_edge = None 
@@ -174,6 +194,9 @@ class P(process):
         self.find_count = 0
         self.size_count = 1
         self.nr_rejected = 0
+        self.LDlevel = 0
+        self.minLeaderDistance = math.inf
+        
 
         for (iterator, branch) in list(self.branches.items()):
             if branch["state"] == "Branch" and ((source_index != None and iterator != source_index) or source_index == None):
