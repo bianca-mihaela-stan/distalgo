@@ -116,23 +116,6 @@ class P(process):
         output(f"{self.index} received a connect from {source_index} with {L} and {self.branches[source_index]} and itself has {self.LN} and {self.FN}")
         if self.SN == "Sleeping":
             wakeup()
-        
-        # if self.SN == "Found-Undecided" and L >= self.LN:
-        #     output(f"{self.index} will deal with Connect from {source_index} later because I'm Found-Undecided")
-        #     send(("Connect", L, F, source_index), to = self)
-        # if self.SN == "Found-Decided" and L == self.LN:
-        #     i_am_root = self.FN == max(self.FN, F)
-        #     if i_am_root:
-        #         self.LN += 1
-        #         self.SN = "Find"
-        #         self.HN = 2**(self.LN + 1)
-        #         self.i_am_root = True
-        #         self.in_branch = None
-        #         output(f"{self.index} : IS ROOT AT CONNECT")
-        #         Initiate()
-        # elif self.SN == "Found-Decided" and L != self.LN:
-        #     output(f"{self.index} will deal with Connect from {source_index} later because I'm Found-Decided")
-        #     send(("Connect", L, F, source_index), to = self)
          
         # if self.SN == "Find" or self.SN == "Found":
         if L < self.LN and self.branches[source_index]["state"] == "Basic":
@@ -151,13 +134,13 @@ class P(process):
             if self.SN == "Find":
                 self.find_count += 1
                 output(f"{self.index} needs to receive report from {source_index}")
-        elif L >= self.LN and self.branches[source_index]["state"] == "Basic":
+        elif (L >= self.LN and self.branches[source_index]["state"] == "Basic") or (self.LN == L and self.branches[source_index]["state"] == "Branch" and self.SN != "Found-Notified"):
             # An equal or bigger fragment wants to connect to me.
             
             # I will deal with this later when my level goes up.
-            output(f"{self.index} will deal with Connect from {source_index} later")
+            output(f"{self.index} will deal with Connect from {source_index} later because {self.LN == L} and {self.branches[source_index]} and {self.SN}")
             send(("Connect", L, F, source_index), to = self)
-        elif L == self.LN and self.branches[source_index]["state"] == "Branch":
+        elif L == self.LN and self.branches[source_index]["state"] == "Branch" and self.SN == "Found-Notified":
             # An equal fragment wants to join with me.
             
             # Both our levels  will become bigger and our fragment identity will be the edge between us.
@@ -346,6 +329,7 @@ class P(process):
                     self.passed_threshold = True
                 if not math.isinf(self.best_wt):
                     # If my best edge is better, I'm going to change the root on my side.
+                    self.SN = "Found-Notified"
                     change_root()
                 else:
                     output(f"KILLING {self.index}")
@@ -394,12 +378,12 @@ class P(process):
 
     def receive(msg = ("Change root", source_index)):
         if self.SN == "Found-Undecided":
-            self.SN = "Found-Decided"
+            self.SN = "Found-Notified"
             change_root()        
             
     def receive(msg = ("MWOEfound", source_index)):
         if self.SN == "Found-Undecided":
-            self.SN = "Found-Decided"
+            self.SN = "Found-Notified"
             for (iterator, branch) in self.branches.items():
                 if iterator != source_index and iterator != self.in_branch and branch["state"] == "Branch":
                     send(("MWOEfound", self.index), to = branch["process_id"])
