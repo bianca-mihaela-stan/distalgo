@@ -1,0 +1,151 @@
+import da
+import sys
+import random
+import os
+import copy
+import time
+
+nr_nodes = sys.argv[1]
+which_graph = sys.argv[2]
+which_run = sys.argv[3]
+
+node_time_results_dir = f'/home/bianca/licenta/distalgo/da/examples/demo/MIS/results/{which_run}'
+mis_results_dir = f"/home/bianca/licenta/distalgo/da/examples/demo/MIS/results/{which_run}"
+node_time_results_path = node_time_results_dir + f'/time_results.txt'
+mis_results_path = mis_results_dir + f'/node_results.txt'
+    
+if not os.path.exists(node_time_results_dir):
+    os.makedirs(node_time_results_dir)
+    
+if not os.path.exists(mis_results_dir):
+    os.makedirs(mis_results_dir)
+
+node_time_results = open(node_time_results_path, "a")
+mis_results = open(mis_results_path, "a")
+f = open(f"/home/bianca/licenta/distalgo/da/examples/MIS/graphs/{nr_nodes}/graph{which_graph}.txt")
+
+config(handling = 'one', channel = 'reliable')
+        
+class P(process):
+    def setup(index: int, neighbors_indexes: tuple, neighbors_process_ids: tuple):
+        self.index = index
+        self.neighbors = {neighbors_indexes[i] : neighbors_process_ids[i] for i in range(len(neighbors_indexes))}
+        self.MIS = 'NOT DECIDED'
+        self.desire_level = 0.5
+        self.effective_degree = None
+        self.desire_marks = {}
+        self.round_nr = 0
+        self.received_mis = {}
+        self.expect_confirmation_from = 0
+        self.mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        self.not_mis_from_neighbors = {key : None for key in self.neighbors.keys()}
+        
+        
+        self.desires_current = []
+        self.desires_future = []
+        self.propagate_mis_current = []
+        self.propagate_mis_future = []
+        self.propagate_not_mis_current = []
+        self.propagate_not_mis_future = []
+        self.previous_sum = 0
+        self.terminate = False
+        
+    def run():
+        self.start_time = time.time()
+        while(self.MIS == "NOT DECIDED"):
+            self.expect_confirmation_from = len(list(self.neighbors.items()))
+            
+            # Calculate the augumented desire level based on the previous round.
+            self.effective_degree = self.previous_sum
+            if self.effective_degree >= 2:
+                self.desire_level = self.desire_level / 2
+            else:
+                self.desire_level = min(2 * self.desire_level, 0.5)
+                    
+            self.MIS = random.choices(['IN MIS', 'NOT DECIDED'], weights=[self.desire_level, 1 - self.desire_level])[0]
+            
+            send(('desire_level + mark', self.desire_level, self.MIS, self.index, self.round_nr), to = list(self.neighbors.values()))
+            if self.MIS == "IN MIS":
+                await(len(self.desires_current) == self.expect_confirmation_from or
+                    'IN MIS' in [x[1] for x in self.desires_current])
+            
+                # Check that none of your neighbors are in the MIS
+                if 'IN MIS' in [x[1] for x in self.desires_current]:
+                    self.MIS = 'NOT DECIDED'
+                
+            # Propagate who is actually in the MIS
+            send(('i am in the mis', self.index, self.MIS, round_nr), to = list(self.neighbors.values()))
+            await(len(self.propagate_mis_current) == self.expect_confirmation_from or
+                  'IN MIS' in [x[1] for x in self.propagate_mis_current])
+
+            # Decide if you're definitely out of the MIS based on your neighbors.
+            if 'IN MIS' in [x[1] for x in self.propagate_mis_current]:
+                self.MIS = 'NOT IN MIS'
+            
+            # Propagate if you're not in the MIS
+            send(('i am not in the mis', self.MIS, self.index, round_nr), to = list(self.neighbors.values()))
+            await(len(self.propagate_not_mis_current) == self.expect_confirmation_from)
+            
+            # Eliminate neighbors that are not in the mis.
+            for x in self.propagate_not_mis_current:
+                if x[1] == 'NOT IN MIS':
+                    self.neighbors.pop(x[0])
+                
+            self.previous_sum = sum([x[0] for x in self.desires_current])
+            self.desires_current = self.desires_future
+            self.desires_future = []
+            self.propagate_mis_current = self.propagate_mis_future
+            self.propagate_mis_future = []
+            self.propagate_not_mis_current = self.propagate_not_mis_future
+            self.propagate_not_mis_future = []
+            self.round_nr += 1
+            
+        self.finish_time = time.time()
+        node_time_results.write(f"{self.index} : {self.start_time}, {self.finish_time}, {self.finish_time - self.start_time}, {self.round_nr}\n")
+        mis_results.write(f"{self.index} : {self.MIS}\n")
+        
+    def receive(msg = ('desire_level + mark', source_desire_level, source_mis, source_index, source_round_nr), from_ = source):
+        if self.round_nr != source_round_nr:
+            self.desires_future.append([source_desire_level, source_mis, source_index])
+        else:
+            self.desires_current.append([source_desire_level, source_mis, source_index])
+    
+    def receive(msg = ('i am in the mis', source_index, source_mis, source_round_nr), from_ = source):
+        if self.round_nr != source_round_nr:
+            self.propagate_mis_future.append([source_index, source_mis])
+        else:
+            self.propagate_mis_current.append([source_index, source_mis])
+            
+        
+    def receive(msg = ('i am not in the mis', source_mis, source_index, source_round_nr), from_ = source):
+        if self.round_nr != source_round_nr:
+            self.propagate_not_mis_future.append([source_index, source_mis])
+        else:
+            self.propagate_not_mis_current.append([source_index, source_mis])
+                
+
+def main():
+    dict = {}
+    line = f.readline()
+    # indexing the nodes with 1
+    n = 1
+    while line:
+        line = line.strip("\n")
+        list = line.split(' ')
+        x = list[0]
+        # output(list)
+        dict[n] = [int(x) for x in list[2:(-1)]]
+        line = f.readline()
+        n += 1
+    ps = []
+    for i in range(1, n):
+        p = new(P, method = 'thread')
+        ps.append(p)
+
+    for (i, p) in enumerate(ps):
+        ps_ids = []
+        for x in dict[i + 1]:
+            ps_ids.append(ps[(x - 1)])
+        setup({p}, (i + 1, tuple(dict[i + 1]), tuple(ps_ids)))
+        
+    start(ps)
