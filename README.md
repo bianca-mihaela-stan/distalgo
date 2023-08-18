@@ -1,10 +1,17 @@
-# DistAlgo-licenta
+# Bachelor's Thesis: [The implementation and comparison of distributed algorithms in a simulated environment](https://github.com/bianca-mihaela-stan/distalgo/blob/master/Bachelor's%20Thesis.pdf)
+
+  Distributed algorithms play a central role in distributed systems. Making sure algorithms are correct is essential in their study.
+Generally, the description of a distributed algorithm focuses on presenting a pseudocode of some theoretical ideas. This is useful in understanding the concepts, but doesn't ensure the correctness of the implementation.
+
+This paper explores the role of using the simulation of an algorithm in DistAlgo for the study of two fundamental problems: maximal independent set (MIS) and minimum spanning tree (MST). This type of simulation helps ensure the correctness of the algorithms, can help identify inefficient implementations and is sufficiently clear to be used in the initial presentation of an algorithm.
+  
+
+# DistAlgo
 
   DistAlgo is a very high-level language for programming distributed
   algorithms. This project implements a DistAlgo compiler with Python as the
   target language. In the following text, the name 'DistAlgo' refers to the
   compiler and not the language.
-
 
 # 1. Requirements
 
